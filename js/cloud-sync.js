@@ -53,6 +53,9 @@ const CloudSync = {
     // 本地备份密钥
     LOCAL_BACKUP_KEY: 'diary_backup_data',
     
+    // 同步锁
+    isSyncing: false,
+    
     // 初始化
     init() {
         console.log('初始化云同步服务...');
@@ -639,111 +642,47 @@ const CloudSync = {
     
     // 同步数据
     async sync() {
-        console.log('开始同步操作...');
-        
-        // 如果已经有一个正在进行的同步操作，则返回该Promise
-        if (this.pendingSyncOperation) {
-            console.log('检测到正在进行的同步操作，等待完成...');
-            return this.pendingSyncOperation;
+        // 如果正在同步，则返回
+        if (this.isSyncing) {
+            console.log('同步正在进行中，跳过本次同步');
+            return;
         }
 
-        // 显示进度通知
-        this.showSyncNotification('开始同步...', 'info');
+        try {
+            this.isSyncing = true;
+            this.showSyncProgress('正在同步数据...', true);
 
-        // 创建本地数据备份
-        const localData = localStorage.getItem('diaries');
-        if (localData && localData !== '[]') {
-            localStorage.setItem(this.LOCAL_BACKUP_KEY, localData);
-            console.log('已创建本地数据备份');
-        }
-
-        // 创建并存储同步操作的Promise
-        this.pendingSyncOperation = (async () => {
+            // 获取本地数据
+            const localData = await this.getLocalData();
+            
             try {
-                // 验证令牌状态
-                const tokenStatus = await this.verifyTokenStatus();
-                if (!tokenStatus.valid) {
-                    console.error('令牌无效，需要重新授权:', tokenStatus.reason);
-                    this.showSyncNotification('需要重新授权，请点击云同步按钮', 'error');
-                    await this.authorize();
-                    return false;
-                }
+                // 从云端下载数据
+                const cloudData = await this.downloadFromCloud();
                 
-                this.showSyncNotification('正在获取本地数据...', 'info');
+                // 合并数据，确保不会重复
+                const mergedData = this.mergeData(localData, cloudData);
                 
-                // 从本地数据库获取数据
-                const localData = await this.getLocalData();
-                console.log(`获取到${localData.length}条本地日记`);
+                // 保存合并后的数据到本地存储
+                localStorage.setItem('diaries', JSON.stringify(mergedData));
                 
-                this.showSyncNotification('正在获取云端数据...', 'info');
-                
-                // 尝试从云端下载数据
-                let cloudData = null;
-                try {
-                    cloudData = await this.downloadFromCloud();
-                    console.log('成功从云端获取数据');
-                } catch (error) {
-                    // 如果文件不存在，则继续上传本地数据
-                    if (error.message.includes('文件不存在')) {
-                        console.log('云端未找到同步文件，将创建新文件');
-                        this.showSyncNotification('首次同步，创建云端备份...', 'info');
-                    } else {
-                        console.error('从云端下载数据失败:', error);
-                        this.showSyncNotification('无法读取云端数据: ' + error.message, 'error');
-                        throw error;
-                    }
-                }
-
-                this.showSyncNotification('正在合并数据...', 'info');
-                
-                // 合并数据
-                let mergedData = localData;
-                if (cloudData) {
-                    try {
-                        // 确保cloudData是对象格式
-                        const parsedCloudData = typeof cloudData === 'string' ? JSON.parse(cloudData) : cloudData;
-                        mergedData = this.mergeData(localData, parsedCloudData);
-                        console.log(`合并后共有${mergedData.length}条日记`);
-                    } catch (error) {
-                        console.error('解析或合并云端数据失败:', error);
-                        this.showSyncNotification('同步数据处理失败: ' + error.message, 'error');
-                        throw new Error('数据合并失败: ' + error.message);
-                    }
-                }
-
-                this.showSyncNotification('正在保存合并数据...', 'info');
-                
-                // 将合并后的数据保存到本地
+                // 保存到IndexedDB
                 await this.saveLocalData(mergedData);
-                console.log('合并数据已保存到本地');
                 
-                this.showSyncNotification('正在上传到云端...', 'info');
+                // 上传合并后的数据到云端
+                await this.uploadToCloud(mergedData);
                 
-                // 将合并后的数据上传到云端
-                await this.uploadToCloud(JSON.stringify(mergedData));
-                console.log('数据已成功上传到云端');
-                
-                // 记录同步时间
-                localStorage.setItem('last_sync_time', new Date().toISOString());
-                
-                // 显示成功通知并显示统计信息
-                this.showSyncNotification(`同步完成: ${mergedData.length}条日记`, 'success');
-                
-                // 触发页面刷新以显示新数据
+                // 触发页面刷新
                 this.triggerPageRefresh();
-                return true;
                 
+                this.showSyncNotification('同步成功！', 'success');
             } catch (error) {
-                console.error('同步操作失败:', error);
-                this.showSyncNotification('同步失败: ' + (error.message || '未知错误'), 'error');
-                return false;
-            } finally {
-                // 同步操作完成后清除标记
-                this.pendingSyncOperation = null;
+                console.error('同步过程出错:', error);
+                this.showSyncNotification('同步失败: ' + error.message, 'error');
             }
-        })();
-        
-        return this.pendingSyncOperation;
+        } finally {
+            this.isSyncing = false;
+            this.showSyncProgress('同步完成', false);
+        }
     },
     
     // 从本地数据库获取数据
@@ -840,18 +779,25 @@ const CloudSync = {
         const mergedMap = new Map();
         
         // 首先添加所有云端数据
-        cloudData.forEach(item => {
-            mergedMap.set(item.id, item);
-        });
+        if (Array.isArray(cloudData)) {
+            cloudData.forEach(item => {
+                if (item && item.id) {
+                    mergedMap.set(item.id, item);
+                }
+            });
+        }
         
         // 添加或更新本地数据（基于最后修改时间）
-        localData.forEach(item => {
-            const cloudItem = mergedMap.get(item.id);
-            
-            if (!cloudItem || new Date(item.updatedAt) > new Date(cloudItem.updatedAt)) {
-                mergedMap.set(item.id, item);
-            }
-        });
+        if (Array.isArray(localData)) {
+            localData.forEach(item => {
+                if (item && item.id) {
+                    const cloudItem = mergedMap.get(item.id);
+                    if (!cloudItem || new Date(item.lastModified) > new Date(cloudItem.lastModified)) {
+                        mergedMap.set(item.id, item);
+                    }
+                }
+            });
+        }
         
         // 转换回数组并按日期排序
         const mergedData = Array.from(mergedMap.values());

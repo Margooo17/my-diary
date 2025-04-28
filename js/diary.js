@@ -44,17 +44,10 @@ const Diary = {
         console.log('导出按钮元素:', exportBtn);
         
         if (importBtn) {
-            // 移除可能已经存在的旧事件，防止重复绑定
-            const newImportBtn = importBtn.cloneNode(true);
-            importBtn.parentNode.replaceChild(newImportBtn, importBtn);
-            
-            newImportBtn.addEventListener('click', (e) => {
-                console.log('导入按钮被点击');
-                e.stopPropagation(); // 阻止冒泡，防止委托事件再次触发
+            importBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 this.showImportDialog();
             });
-        } else {
-            console.error('找不到导入按钮元素');
         }
         
         if (exportBtn) {
@@ -64,75 +57,45 @@ const Diary = {
         // 初始化标签输入
         Tags.initTagsInput();
 
-        // 直接绑定保存和取消按钮事件
+        // 绑定模态框按钮事件
         const modal = document.querySelector('.diary-modal');
         if (modal) {
-            console.log('找到模态框，准备绑定按钮事件');
             const saveBtn = modal.querySelector('.save-btn');
             const cancelBtn = modal.querySelector('.cancel-btn');
             const closeBtn = modal.querySelector('.close-btn');
             
             if (saveBtn) {
-                console.log('找到保存按钮，绑定点击事件');
-                // 双重保险，确保事件只绑定一次
+                // 移除所有现有的事件监听器
                 const newSaveBtn = saveBtn.cloneNode(true);
                 saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
                 
-                newSaveBtn.addEventListener('click', (e) => {
-                    console.log('保存按钮被点击');
-                    e.preventDefault(); // 阻止默认行为
-                    e.stopPropagation(); // 阻止事件冒泡
-                    this.saveAndClose();
+                // 添加新的事件监听器
+                newSaveBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await this.saveAndClose();
                 });
-            } else {
-                console.error('无法找到保存按钮');
             }
             
             if (cancelBtn) {
-                console.log('找到取消按钮，绑定点击事件');
-                cancelBtn.addEventListener('click', () => {
-                    modal.style.display = 'none';
-                    modal.querySelector('.diary-content').value = '';
-                    Tags.setSelectedTags([]);
-                    delete modal.dataset.diaryId;
-                });
+                cancelBtn.addEventListener('click', () => this.closeModal());
             }
             
             if (closeBtn) {
-                console.log('找到关闭按钮，绑定点击事件');
-                closeBtn.addEventListener('click', () => {
-                    modal.style.display = 'none';
-                    modal.querySelector('.diary-content').value = '';
-                    Tags.setSelectedTags([]);
-                    delete modal.dataset.diaryId;
-                });
+                closeBtn.addEventListener('click', () => this.closeModal());
             }
         }
 
         // 添加ESC键关闭功能
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                const modal = document.querySelector('.diary-modal');
-                if (modal && modal.style.display !== 'none') {
-                    modal.style.display = 'none';
-                    modal.querySelector('.diary-content').value = '';
-                    Tags.setSelectedTags([]);
-                    delete modal.dataset.diaryId;
-                }
+                this.closeModal();
                 
                 // 关闭导入对话框
                 const importDialog = document.querySelector('.import-dialog');
                 if (importDialog) {
                     document.body.removeChild(importDialog);
                 }
-            }
-        });
-        
-        // 保留仅保存按钮的事件委托，移除导入按钮的事件委托
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('save-btn')) {
-                console.log('通过委托方式捕获保存按钮点击');
-                this.saveAndClose();
             }
         });
     },
@@ -545,64 +508,80 @@ const Diary = {
     },
 
     // 保存并关闭
-    saveAndClose() {
-        const content = document.querySelector('.diary-content').value.trim();
-        console.log('准备保存的内容:', content);
+    async saveAndClose() {
+        // 防止重复提交
+        if (this.isSaving) {
+            console.log('正在保存中，请勿重复提交');
+            return;
+        }
         
-        if (!content) {
-            console.log('内容为空，不保存');
-            this.closeModal();
+        this.isSaving = true;
+        
+        try {
+            const content = document.querySelector('.diary-content').value.trim();
+            console.log('准备保存的内容:', content);
+            
+            if (!content) {
+                console.log('内容为空，不保存');
+                this.closeModal();
                 return;
             }
             
-        // 获取当前选中的标签
-        const tags = Array.from(document.querySelectorAll('.selected-tags .tag'))
-            .map(tag => tag.textContent.trim());
+            // 获取当前选中的标签
+            const tags = Array.from(document.querySelectorAll('.selected-tags .tag'))
+                .map(tag => tag.textContent.trim());
             console.log('标签:', tags);
             
-        // 创建新日记对象
-        const diary = {
-            id: this.currentDiaryId || Date.now().toString(),
-            content,
-            createdAt: this.currentDiaryId ? this.currentDiaryCreatedAt : new Date().toISOString(),
-            tags,
-            comments: this.currentDiaryId ? (this.currentDiaryComments || []) : []
-        };
-        
-        // 添加最后修改时间
-        diary.lastModified = new Date().toISOString();
-        
-        console.log('保存的日记:', diary);
+            // 创建新日记对象
+            const diary = {
+                id: this.currentDiaryId || Date.now().toString(),
+                content,
+                createdAt: this.currentDiaryId ? this.currentDiaryCreatedAt : new Date().toISOString(),
+                tags,
+                comments: this.currentDiaryId ? (this.currentDiaryComments || []) : [],
+                lastModified: new Date().toISOString()
+            };
             
-        // 保存到存储
-        let diaries;
-        if (this.currentDiaryId) {
-                    // 更新现有日记
-            diaries = Storage.getAllDiaries().map(d => 
-                d.id === this.currentDiaryId ? diary : d
-            );
-                } else {
-            // 添加新日记
-            diaries = [diary, ...Storage.getAllDiaries()];
-        }
-        
-        Storage.saveAllDiaries(diaries);
-                    
-        // 显示成就动画
-                        this.showAchievementAnimation();
-        
-        // 清空输入并关闭模态框
-        this.closeModal();
-                
-        // 重新渲染日记列表
-                this.renderDiaries();
-        
-        // 如果云同步模块存在，触发自动同步
-        if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
-            // 使用延迟确保本地数据已保存
-            setTimeout(() => {
-                CloudSync.sync();
-            }, 1000);
+            console.log('保存的日记:', diary);
+            
+            // 保存到存储
+            let diaries;
+            if (this.currentDiaryId) {
+                // 更新现有日记
+                diaries = Storage.getAllDiaries().map(d => 
+                    d.id === this.currentDiaryId ? diary : d
+                );
+            } else {
+                // 添加新日记
+                diaries = [diary, ...Storage.getAllDiaries()];
+            }
+            
+            // 保存到本地存储
+            Storage.saveAllDiaries(diaries);
+            
+            // 显示成就动画
+            this.showAchievementAnimation();
+            
+            // 清空输入并关闭模态框
+            this.closeModal();
+            
+            // 重新渲染日记列表
+            this.renderDiaries();
+            
+            // 如果云同步模块存在且已授权，触发自动同步
+            if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
+                try {
+                    // 等待一小段时间确保本地数据已完全保存
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    await CloudSync.sync();
+                } catch (error) {
+                    console.error('云同步失败:', error);
+                }
+            }
+        } catch (error) {
+            console.error('保存日记失败:', error);
+        } finally {
+            this.isSaving = false;
         }
     },
     
@@ -816,6 +795,17 @@ const Diary = {
         document.querySelector('.date-end').addEventListener('change', () => {
             if (dateCheckbox.checked) searchDiaries(searchInput.value.trim());
         });
+    },
+
+    // 关闭模态框
+    closeModal() {
+        const modal = document.querySelector('.diary-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.querySelector('.diary-content').value = '';
+            Tags.setSelectedTags([]);
+            delete modal.dataset.diaryId;
+        }
     }
 };
 

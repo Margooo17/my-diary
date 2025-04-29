@@ -10,13 +10,26 @@ const CloudSync = {
     config: {
         clientId: '8fldvz7s2c4lsq5', // Dropbox应用键
         redirectUri: window.location.origin + window.location.pathname,
-        cloudFolder: '/diary-data'
+        cloudFolder: '/diary-data',
+        autoSync: true, // 启用自动同步
+        syncInterval: 5 * 60 * 1000, // 自动保存间隔（毫秒）
+        lastSyncKey: 'last_sync_timestamp'
+    },
+    
+    // 同步状态
+    syncState: {
+        lastSyncTime: null,
+        isSyncing: false,
+        hasChanges: false,
+        syncTimer: null
     },
     
     /**
      * 初始化云同步功能
      */
     init() {
+        console.log('初始化云同步模块...');
+        
         // 初始化Dropbox客户端
         this.initDropboxClient();
         
@@ -25,6 +38,12 @@ const CloudSync = {
         
         // 检查是否从授权重定向返回
         this.checkAuthRedirect();
+        
+        // 设置自动同步
+        this.setupAutoSync();
+        
+        // 设置页面关闭前保存
+        this.setupBeforeUnloadSync();
     },
     
     /**
@@ -52,17 +71,211 @@ const CloudSync = {
      * 绑定按钮事件
      */
     bindEvents() {
-        // 同步按钮
-        const syncBtn = document.getElementById('sync-btn');
-        if (syncBtn) {
-            syncBtn.addEventListener('click', () => this.syncData());
+        // 创建并添加同步按钮到侧边栏
+        this.createSyncButton();
+        
+        // 监听数据变化
+        this.listenForDataChanges();
+    },
+    
+    /**
+     * 创建同步按钮
+     */
+    createSyncButton() {
+        const dataActions = document.querySelector('.data-actions');
+        
+        if (!dataActions) return;
+        
+        // 检查是否已存在同步按钮
+        if (!document.querySelector('.cloud-sync-btn')) {
+            // 创建新的同步按钮
+            const syncBtn = document.createElement('button');
+            syncBtn.className = 'cloud-sync-btn';
+            syncBtn.innerHTML = '<i class="fa fa-cloud"></i> 云同步';
+            
+            // 添加点击事件
+            syncBtn.addEventListener('click', () => {
+                // 检查是否已授权
+                if (!this.dropboxClient.getAccessToken()) {
+                    this.authorizeDropbox();
+                } else {
+                    this.syncData();
+                }
+            });
+            
+            // 添加到DOM
+            dataActions.appendChild(syncBtn);
+            
+            // 简化界面 - 隐藏多余的同步按钮
+            const oldButtons = dataActions.querySelectorAll('.emergency-sync-btn, .super-sync-btn');
+            oldButtons.forEach(btn => {
+                btn.style.display = 'none';
+            });
+        }
+    },
+    
+    /**
+     * 设置自动同步
+     */
+    setupAutoSync() {
+        // 获取上次同步时间
+        const lastSyncTime = localStorage.getItem(this.config.lastSyncKey);
+        this.syncState.lastSyncTime = lastSyncTime ? parseInt(lastSyncTime) : null;
+        
+        // 如果启用了自动同步且已授权
+        if (this.config.autoSync && this.dropboxClient.getAccessToken()) {
+            // 页面加载完成后自动同步
+            setTimeout(() => {
+                this.autoSyncIfNeeded();
+            }, 2000);
+            
+            // 设置定时同步
+            this.syncState.syncTimer = setInterval(() => {
+                if (this.syncState.hasChanges && !this.syncState.isSyncing) {
+                    this.syncData();
+                }
+            }, this.config.syncInterval);
+        }
+    },
+    
+    /**
+     * 监听数据变化
+     */
+    listenForDataChanges() {
+        // 监听数据变化事件
+        window.addEventListener('diary-data-changed', () => {
+            this.syncState.hasChanges = true;
+            console.log('检测到数据变化，等待自动同步...');
+        });
+        
+        // 监听Storage变化
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'diaries' || event.key === 'diaryEntries') {
+                this.syncState.hasChanges = true;
+                console.log('检测到localStorage变化，等待自动同步...');
+            }
+        });
+    },
+    
+    /**
+     * 设置页面关闭前同步
+     */
+    setupBeforeUnloadSync() {
+        window.addEventListener('beforeunload', (event) => {
+            // 如果有未保存的更改，尝试同步
+            if (this.syncState.hasChanges && !this.syncState.isSyncing) {
+                // 同步数据
+                this.syncBeforeUnload();
+                
+                // 如果同步正在进行，提示用户可能需要等待
+                if (this.syncState.isSyncing) {
+                    const message = '正在保存数据，请等待同步完成...';
+                    event.returnValue = message;
+                    return message;
+                }
+            }
+        });
+    },
+    
+    /**
+     * 检查是否需要自动同步
+     */
+    autoSyncIfNeeded() {
+        // 如果未授权，不执行同步
+        if (!this.dropboxClient.getAccessToken()) {
+            console.log('未连接到云存储，跳过自动同步');
+            return;
         }
         
-        // 备份恢复按钮
-        const backupRecoverBtn = document.getElementById('backup-recover-btn');
-        if (backupRecoverBtn) {
-            backupRecoverBtn.addEventListener('click', () => this.recoverFromBackup());
+        const now = Date.now();
+        const timeSinceLastSync = this.syncState.lastSyncTime ? (now - this.syncState.lastSyncTime) : Infinity;
+        
+        // 如果从未同步过或距离上次同步时间超过阈值
+        if (!this.syncState.lastSyncTime || timeSinceLastSync > this.config.syncInterval) {
+            console.log('执行自动同步...');
+            this.syncData(true); // true表示这是自动同步
+        } else {
+            console.log(`上次同步在 ${Math.round(timeSinceLastSync / 1000 / 60)} 分钟前，暂不需要同步`);
         }
+    },
+    
+    /**
+     * 页面关闭前同步
+     */
+    syncBeforeUnload() {
+        // 确保已授权
+        if (!this.dropboxClient.getAccessToken()) return;
+        
+        // 标记正在同步
+        this.syncState.isSyncing = true;
+        
+        try {
+            // 获取所有日记数据
+            let diaryData = this.getAllDiaryData();
+            
+            // 检查是否有数据
+            if (!Array.isArray(diaryData) || diaryData.length === 0) {
+                console.log('没有数据需要同步');
+                this.syncState.isSyncing = false;
+                return;
+            }
+            
+            const dataStr = JSON.stringify(diaryData);
+            
+            // 创建上传文件
+            const filename = `diary_${new Date().toISOString().slice(0, 10)}.json`;
+            const filePath = `${this.config.cloudFolder}/${filename}`;
+            
+            // 使用同步方式上传到Dropbox (注意：这不是真正的同步API调用，但在页面关闭前会尽力执行)
+            this.dropboxClient.filesUpload({
+                path: filePath,
+                contents: dataStr,
+                mode: 'overwrite'
+            });
+            
+            console.log('页面关闭前同步尝试已执行');
+        } catch (error) {
+            console.error('页面关闭前同步失败:', error);
+        } finally {
+            // 重置同步状态
+            this.syncState.isSyncing = false;
+        }
+    },
+    
+    /**
+     * 获取所有日记数据
+     */
+    getAllDiaryData() {
+        let diaryData = [];
+        
+        // 尝试从 DiaryApp 获取数据
+        if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.getAllEntries === 'function') {
+            diaryData = DiaryApp.getAllEntries();
+            console.log('从 DiaryApp 获取数据，找到', diaryData.length, '条记录');
+        } 
+        // 尝试从 Storage 获取数据
+        else if (typeof Storage !== 'undefined' && typeof Storage.getAllDiaries === 'function') {
+            diaryData = Storage.getAllDiaries();
+            console.log('从 Storage 获取数据，找到', diaryData.length, '条记录');
+        } 
+        // 直接从 localStorage 获取
+        else {
+            const diaryEntries = localStorage.getItem('diaryEntries');
+            const diaries = localStorage.getItem('diaries');
+            
+            if (diaryEntries) {
+                diaryData = JSON.parse(diaryEntries);
+                console.log('从 localStorage.diaryEntries 获取数据，找到', diaryData.length, '条记录');
+            } else if (diaries) {
+                diaryData = JSON.parse(diaries);
+                console.log('从 localStorage.diaries 获取数据，找到', diaryData.length, '条记录');
+            } else {
+                diaryData = [];
+                console.log('无法找到任何数据源');
+            }
+        }
+        
+        return diaryData;
     },
     
     /**
@@ -83,6 +296,11 @@ const CloudSync = {
             
             this.showSyncNotification('已成功连接到Dropbox', 'success');
             this.showSyncStatus('已连接到Dropbox');
+            
+            // 授权后立即同步
+            setTimeout(() => {
+                this.syncData();
+            }, 1000);
         }
     },
     
@@ -97,51 +315,36 @@ const CloudSync = {
     /**
      * 同步数据到云端
      */
-    async syncData() {
+    async syncData(isAutoSync = false) {
+        // 避免重复同步
+        if (this.syncState.isSyncing) {
+            console.log('同步已在进行中，请稍候...');
+            return;
+        }
+        
         console.log('开始同步数据');
-        this.showSyncProgress('正在同步...', false);
+        this.syncState.isSyncing = true;
+        
+        if (!isAutoSync) {
+            this.showSyncProgress('正在同步...', false);
+        }
         
         // 如果未授权，先进行授权
         if (!this.dropboxClient.getAccessToken()) {
+            this.syncState.isSyncing = false;
             this.authorizeDropbox();
             return;
         }
         
         try {
-            // 获取所有日记数据（从不同的可能存储位置）
-            let diaryData;
-            
-            // 尝试从 DiaryApp 获取数据
-            if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.getAllEntries === 'function') {
-                diaryData = DiaryApp.getAllEntries();
-                console.log('从 DiaryApp 获取数据，找到', diaryData.length, '条记录');
-            } 
-            // 尝试从 Storage 获取数据
-            else if (typeof Storage !== 'undefined' && typeof Storage.getAllDiaries === 'function') {
-                diaryData = Storage.getAllDiaries();
-                console.log('从 Storage 获取数据，找到', diaryData.length, '条记录');
-            } 
-            // 直接从 localStorage 获取
-            else {
-                const diaryEntries = localStorage.getItem('diaryEntries');
-                const diaries = localStorage.getItem('diaries');
-                
-                if (diaryEntries) {
-                    diaryData = JSON.parse(diaryEntries);
-                    console.log('从 localStorage.diaryEntries 获取数据，找到', diaryData.length, '条记录');
-                } else if (diaries) {
-                    diaryData = JSON.parse(diaries);
-                    console.log('从 localStorage.diaries 获取数据，找到', diaryData.length, '条记录');
-                } else {
-                    diaryData = [];
-                    console.log('无法找到任何数据源');
-                }
-            }
+            // 获取所有日记数据
+            const diaryData = this.getAllDiaryData();
             
             // 检查是否有数据
             if (!Array.isArray(diaryData) || diaryData.length === 0) {
                 this.showSyncNotification('没有发现需要同步的数据', 'warning');
-                this.showSyncProgress('无数据可同步', true, true);
+                if (!isAutoSync) this.showSyncProgress('无数据可同步', true, true);
+                this.syncState.isSyncing = false;
                 return;
             }
             
@@ -174,15 +377,35 @@ const CloudSync = {
             });
             
             console.log('同步完成:', response);
-            this.showSyncNotification(`已成功同步${diaryData.length}条日记到云端`, 'success');
-            this.showSyncProgress('同步成功', true);
             
-            // 创建备份
-            await this.createBackup(dataStr);
+            // 如果不是自动同步，显示成功通知
+            if (!isAutoSync) {
+                this.showSyncNotification(`已成功同步${diaryData.length}条日记到云端`, 'success');
+                this.showSyncProgress('同步成功', true);
+            } else {
+                console.log('自动同步完成');
+            }
+            
+            // 更新最后同步时间
+            this.syncState.lastSyncTime = Date.now();
+            localStorage.setItem(this.config.lastSyncKey, this.syncState.lastSyncTime.toString());
+            
+            // 重置更改标记
+            this.syncState.hasChanges = false;
+            
+            // 创建备份（在后台静默进行）
+            this.createBackup(dataStr);
         } catch (error) {
             console.error('同步失败:', error);
-            this.showSyncNotification('同步失败: ' + error.message, 'error');
-            this.showSyncProgress('同步失败', true, true);
+            
+            if (!isAutoSync) {
+                this.showSyncNotification('同步失败: ' + error.message, 'error');
+                this.showSyncProgress('同步失败', true, true);
+            } else {
+                console.error('自动同步失败:', error.message);
+            }
+        } finally {
+            this.syncState.isSyncing = false;
         }
     },
     
@@ -218,95 +441,49 @@ const CloudSync = {
             console.log('备份创建成功');
         } catch (error) {
             console.error('创建备份失败:', error);
-            this.showSyncNotification('创建备份失败: ' + error.message, 'warning');
         }
     },
     
     /**
-     * 从备份恢复数据
+     * 从云端下载数据
      */
-    async recoverFromBackup() {
-        console.log('开始从备份恢复数据');
-        this.showSyncProgress('正在获取备份列表...', false);
-        
-        if (!this.dropboxClient.getAccessToken()) {
-            this.showSyncNotification('未连接云存储，请先授权Dropbox', 'error');
-            this.showSyncProgress('未连接云存储', true, true);
-            return;
-        }
-        
+    async downloadFromCloud() {
         try {
-            // 获取备份文件夹中的文件列表
+            // 显示下载进度
+            this.showSyncProgress('正在从云端获取数据...', false);
+            
+            // 获取文件列表
             const response = await this.dropboxClient.filesListFolder({
-                path: '/backups'
+                path: this.config.cloudFolder
             });
             
-            const backups = response.result.entries
-                .filter(entry => entry['.tag'] === 'file')
-                .sort((a, b) => new Date(b.server_modified) - new Date(a.server_modified)); // 按修改时间降序排序
-            
-            if (backups.length === 0) {
-                this.showSyncNotification('未找到可用的备份', 'warning');
-                this.showSyncProgress('没有找到备份文件', true, true);
-                return;
+            // 如果没有文件，返回空数组
+            if (response.result.entries.length === 0) {
+                this.showSyncNotification('云端没有找到日记数据', 'warning');
+                this.showSyncProgress('云端无数据', true, true);
+                return null;
             }
             
-            // 显示备份选择对话框
-            const backupDialog = document.createElement('div');
-            backupDialog.className = 'backup-dialog-overlay';
-            backupDialog.innerHTML = `
-                <div class="backup-dialog">
-                    <h3>选择要恢复的备份</h3>
-                    <div class="backup-list">
-                        ${backups.map((backup, index) => `
-                            <div class="backup-item" data-index="${index}">
-                                <div class="backup-info">
-                                    <span class="backup-name">${backup.name}</span>
-                                    <span class="backup-date">${new Date(backup.server_modified).toLocaleString()}</span>
-                                    <span class="backup-size">${this.formatFileSize(backup.size)}</span>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                    <div class="backup-dialog-buttons">
-                        <button class="btn-secondary cancel-backup-btn">取消</button>
-                    </div>
-                </div>
-            `;
+            // 找到最新的日记数据文件
+            const diaryFiles = response.result.entries
+                .filter(entry => entry['.tag'] === 'file' && entry.name.startsWith('diary_'))
+                .sort((a, b) => new Date(b.server_modified) - new Date(a.server_modified));
             
-            document.body.appendChild(backupDialog);
-            
-            // 等待用户选择备份文件
-            const selectedBackup = await new Promise(resolve => {
-                const backupItems = backupDialog.querySelectorAll('.backup-item');
-                backupItems.forEach(item => {
-                    item.addEventListener('click', () => {
-                        const index = parseInt(item.getAttribute('data-index'));
-                        document.body.removeChild(backupDialog);
-                        resolve(backups[index]);
-                    });
-                });
-                
-                const cancelBtn = backupDialog.querySelector('.cancel-backup-btn');
-                cancelBtn.addEventListener('click', () => {
-                    document.body.removeChild(backupDialog);
-                    resolve(null);
-                });
-            });
-            
-            if (!selectedBackup) {
-                this.showSyncProgress('已取消恢复操作', true);
-                return;
+            if (diaryFiles.length === 0) {
+                this.showSyncNotification('云端没有找到有效的日记文件', 'warning');
+                this.showSyncProgress('无有效文件', true, true);
+                return null;
             }
             
-            // 下载选择的备份文件
-            this.showSyncProgress(`正在恢复备份: ${selectedBackup.name}...`, false);
+            // 下载最新的文件
+            const latestFile = diaryFiles[0];
+            this.showSyncProgress(`正在下载: ${latestFile.name}`, false);
             
             const fileData = await this.dropboxClient.filesDownload({
-                path: selectedBackup.path_lower
+                path: latestFile.path_lower
             });
             
-            // 读取备份文件内容
+            // 读取文件内容
             const reader = new FileReader();
             const dataPromise = new Promise(resolve => {
                 reader.onload = () => resolve(reader.result);
@@ -317,56 +494,84 @@ const CloudSync = {
             const diaryData = JSON.parse(dataStr);
             
             if (!Array.isArray(diaryData)) {
-                this.showSyncNotification('备份文件格式不正确', 'error');
-                this.showSyncProgress('恢复失败：无效的备份格式', true, true);
-                return;
-            }
-
-            let restored = false;
-            
-            // 尝试使用DiaryApp恢复
-            if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.restoreFromBackup === 'function') {
-                restored = DiaryApp.restoreFromBackup(diaryData);
-                console.log('通过DiaryApp恢复数据', restored ? '成功' : '失败');
+                this.showSyncNotification('云端数据格式不正确', 'error');
+                this.showSyncProgress('数据格式错误', true, true);
+                return null;
             }
             
-            // 尝试使用Storage恢复
-            if (!restored && typeof Storage !== 'undefined' && typeof Storage.saveAllDiaries === 'function') {
-                Storage.saveAllDiaries(diaryData);
-                console.log('通过Storage恢复数据');
-                restored = true;
-            }
-            
-            // 直接保存到localStorage（同时存储到两个位置以确保兼容性）
-            if (!restored) {
-                // 存储到所有可能的位置，确保跨设备兼容
-                localStorage.setItem('diaryEntries', JSON.stringify(diaryData));
-                localStorage.setItem('diaries', JSON.stringify(diaryData));
-                console.log('数据同时保存到diaryEntries和diaries');
-                restored = true;
-            } else {
-                // 也确保所有地方都有同样的数据
-                if (localStorage.getItem('diaryEntries') !== null) {
-                    localStorage.setItem('diaries', localStorage.getItem('diaryEntries'));
-                } else if (localStorage.getItem('diaries') !== null) {
-                    localStorage.setItem('diaryEntries', localStorage.getItem('diaries'));
-                }
-            }
-            
-            if (restored) {
-                this.showSyncNotification(`成功从备份恢复了${diaryData.length}条日记`, 'success');
-                this.showSyncProgress('恢复完成', true);
-                
-                // 刷新页面数据
-                this.triggerPageRefresh();
-            } else {
-                this.showSyncNotification('恢复失败：无法存储数据', 'error');
-                this.showSyncProgress('恢复失败', true, true);
-            }
+            this.showSyncProgress('数据获取成功', true);
+            return diaryData;
         } catch (error) {
-            console.error('恢复备份失败:', error);
-            this.showSyncNotification('恢复备份失败: ' + error.message, 'error');
-            this.showSyncProgress('恢复失败', true, true);
+            console.error('从云端下载数据失败:', error);
+            this.showSyncNotification('获取云端数据失败: ' + error.message, 'error');
+            this.showSyncProgress('下载失败', true, true);
+            return null;
+        }
+    },
+    
+    /**
+     * 加载云端数据
+     */
+    async loadCloudData() {
+        // 如果未授权，先进行授权
+        if (!this.dropboxClient.getAccessToken()) {
+            this.authorizeDropbox();
+            return;
+        }
+        
+        // 下载云端数据
+        const cloudData = await this.downloadFromCloud();
+        
+        if (!cloudData) return;
+        
+        // 弹出确认对话框
+        const confirmDownload = confirm(`确定要从云端加载${cloudData.length}条日记数据吗？这将替换当前本地数据。`);
+        
+        if (confirmDownload) {
+            try {
+                // 保存到本地
+                await this.saveLocalData(cloudData);
+                
+                // 显示通知
+                this.showSyncNotification(`已成功加载${cloudData.length}条云端日记`, 'success');
+                
+                // 刷新页面
+                this.triggerPageRefresh();
+            } catch (error) {
+                console.error('保存云端数据失败:', error);
+                this.showSyncNotification('保存云端数据失败: ' + error.message, 'error');
+            }
+        }
+    },
+    
+    /**
+     * 保存数据到本地存储
+     */
+    async saveLocalData(data) {
+        try {
+            // 同时保存到两个存储位置，确保跨设备兼容性
+            localStorage.setItem('diaryEntries', JSON.stringify(data));
+            localStorage.setItem('diaries', JSON.stringify(data));
+            console.log('数据已同时保存到diaryEntries和diaries');
+            return true;
+        } catch (error) {
+            console.error('保存本地数据失败:', error);
+            throw error;
+        }
+    },
+    
+    /**
+     * 强制刷新页面数据
+     */
+    triggerPageRefresh() {
+        // 如果有刷新日记列表的方法就调用
+        if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.loadEntries === 'function') {
+            DiaryApp.loadEntries();
+        } else if (typeof Diary !== 'undefined' && typeof Diary.loadDiaries === 'function') {
+            Diary.loadDiaries();
+        } else {
+            // 发送自定义事件
+            window.dispatchEvent(new CustomEvent('diary-data-updated'));
         }
     },
     
@@ -407,32 +612,30 @@ const CloudSync = {
         // 更新状态消息
         this.showSyncStatus(message);
         
-        // 更新进度条
-        const progressBar = document.getElementById('sync-progress-bar');
-        if (progressBar) {
-            if (isComplete) {
-                progressBar.style.width = '100%';
-                if (isError) {
-                    progressBar.style.backgroundColor = '#f44336'; // 错误状态颜色
-                } else {
-                    progressBar.style.backgroundColor = '#4caf50'; // 成功状态颜色
-                }
+        // 获取同步指示器
+        const syncIndicator = document.querySelector('.auto-sync-indicator');
+        
+        if (syncIndicator) {
+            if (!isComplete) {
+                // 显示指示器
+                syncIndicator.classList.add('active');
             } else {
-                // 正在进行中的动画效果
-                progressBar.style.width = '90%';
-                progressBar.style.backgroundColor = '';
-            }
-            
-            // 完成后重置
-            if (isComplete) {
+                // 隐藏指示器（延迟）
                 setTimeout(() => {
-                    progressBar.style.width = '0';
-                    setTimeout(() => {
-                        progressBar.style.backgroundColor = '';
-                    }, 300);
-                }, 2000);
+                    syncIndicator.classList.remove('active');
+                }, 1000);
             }
         }
+        
+        // 将同步状态通知到页面
+        const event = new CustomEvent('sync-status-changed', {
+            detail: {
+                message,
+                isComplete,
+                isError
+            }
+        });
+        window.dispatchEvent(event);
     },
     
     /**
@@ -442,7 +645,9 @@ const CloudSync = {
         // 移除现有通知
         const existingNotifications = document.querySelectorAll('.sync-notification');
         existingNotifications.forEach(notification => {
-            document.body.removeChild(notification);
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
         });
         
         // 创建新通知
@@ -492,200 +697,16 @@ const CloudSync = {
         const i = Math.floor(Math.log(bytes) / Math.log(1024));
         
         return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
-    },
-
-    /**
-     * 检查访问令牌状态
-     */
-    async verifyTokenStatus() {
-        try {
-            // 检查是否有令牌
-            const token = this.dropboxClient.getAccessToken();
-            if (!token) {
-                return { valid: false, message: '未授权' };
-            }
-            
-            // 尝试获取用户信息以验证令牌有效性
-            await this.dropboxClient.usersGetCurrentAccount();
-            return { valid: true, message: '令牌有效' };
-        } catch (error) {
-            console.error('令牌验证失败:', error);
-            return { valid: false, message: '令牌无效或已过期' };
-        }
-    },
-    
-    /**
-     * 从云端下载数据
-     */
-    async downloadFromCloud() {
-        try {
-            // 获取文件列表
-            const response = await this.dropboxClient.filesListFolder({
-                path: this.config.cloudFolder
-            });
-            
-            // 如果没有文件，返回空数组
-            if (response.result.entries.length === 0) {
-                return [];
-            }
-            
-            // 找到最新的日记数据文件
-            const diaryFiles = response.result.entries
-                .filter(entry => entry['.tag'] === 'file' && entry.name.startsWith('diary_'))
-                .sort((a, b) => new Date(b.server_modified) - new Date(a.server_modified));
-            
-            if (diaryFiles.length === 0) {
-                return [];
-            }
-            
-            // 下载最新的文件
-            const latestFile = diaryFiles[0];
-            const fileData = await this.dropboxClient.filesDownload({
-                path: latestFile.path_lower
-            });
-            
-            // 读取文件内容
-            const reader = new FileReader();
-            const dataPromise = new Promise(resolve => {
-                reader.onload = () => resolve(reader.result);
-                reader.readAsText(fileData.result.fileBlob);
-            });
-            
-            const dataStr = await dataPromise;
-            const diaryData = JSON.parse(dataStr);
-            
-            return diaryData;
-        } catch (error) {
-            console.error('从云端下载数据失败:', error);
-            throw error;
-        }
-    },
-
-    /**
-     * 保存数据到本地存储
-     */
-    async saveLocalData(data) {
-        try {
-            // 同时保存到两个存储位置，确保跨设备兼容性
-            localStorage.setItem('diaryEntries', JSON.stringify(data));
-            localStorage.setItem('diaries', JSON.stringify(data));
-            console.log('数据已同时保存到diaryEntries和diaries');
-            return true;
-        } catch (error) {
-            console.error('保存本地数据失败:', error);
-            throw error;
-        }
-    },
-
-    /**
-     * 强制刷新页面数据
-     */
-    triggerPageRefresh() {
-        // 如果有刷新日记列表的方法就调用
-        if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.loadEntries === 'function') {
-            DiaryApp.loadEntries();
-        } else if (typeof Diary !== 'undefined' && typeof Diary.loadDiaries === 'function') {
-            Diary.loadDiaries();
-        } else {
-            // 如果都没有找到，尝试重载页面
-            window.location.reload();
-        }
-    },
-
-    /**
-     * 超级强制同步 - 强制从云端获取数据并覆盖本地
-     */
-    async superForceSync() {
-        console.log('执行超级强制同步');
-        this.showSyncProgress('正在强制从云端同步...', false);
-        
-        try {
-            // 验证令牌状态
-            const tokenStatus = await this.verifyTokenStatus();
-            if (!tokenStatus.valid) {
-                console.log('令牌无效，需要重新授权');
-                this.showSyncNotification('访问令牌无效，需要重新授权', 'error');
-                this.showSyncProgress('同步失败: 需要授权', true, true);
-                setTimeout(() => this.authorizeDropbox(), 1000);
-                return;
-            }
-            
-            // 从云端下载数据
-            console.log('尝试从云端下载最新数据');
-            const cloudData = await this.downloadFromCloud();
-            
-            if (Array.isArray(cloudData) && cloudData.length > 0) {
-                console.log(`成功获取${cloudData.length}条云端数据`);
-                
-                // 保存到本地，完全覆盖本地数据
-                await this.saveLocalData(cloudData);
-                
-                // 通知并刷新
-                this.showSyncNotification(`已强制同步${cloudData.length}条日记`, 'success');
-                this.showSyncProgress('强制同步成功', true);
-                
-                // 刷新页面数据
-                this.triggerPageRefresh();
-            } else {
-                console.log('云端没有找到有效数据');
-                this.showSyncNotification('云端没有找到有效数据', 'error');
-                this.showSyncProgress('同步失败: 云端无数据', true, true);
-            }
-        } catch (error) {
-            console.error('超级强制同步失败:', error);
-            this.showSyncNotification('强制同步失败: ' + error.message, 'error');
-            this.showSyncProgress('同步失败', true, true);
-        }
-    },
-
-    /**
-     * 紧急强制同步 - 与超级强制相似但有更多提示
-     */
-    async emergencyForceSync() {
-        console.log('执行紧急强制同步');
-        this.showSyncProgress('正在强制从云端同步...', false);
-        
-        try {
-            // 检查令牌状态
-            const tokenStatus = await this.verifyTokenStatus();
-            if (!tokenStatus.valid) {
-                console.log('令牌无效，需要重新授权');
-                this.showSyncNotification('需要重新授权，请点击授权按钮', 'error');
-                this.showSyncProgress('同步失败: 需要授权', true, true);
-                setTimeout(() => this.authorizeDropbox(), 1000);
-                return;
-            }
-            
-            // 尝试从云端下载
-            console.log('尝试从云端下载数据...');
-            const cloudData = await this.downloadFromCloud();
-            
-            if (Array.isArray(cloudData) && cloudData.length > 0) {
-                console.log(`成功获取${cloudData.length}条云端数据`);
-                
-                // 直接将云端数据保存到本地，覆盖本地数据
-                await this.saveLocalData(cloudData);
-                
-                // 强制刷新页面
-                this.triggerPageRefresh();
-                
-                // 显示成功通知
-                this.showSyncNotification(`同步成功，已加载${cloudData.length}条日记`, 'success');
-                this.showSyncProgress('同步成功', true);
-            } else {
-                console.log('云端没有数据或数据格式不正确');
-                this.showSyncNotification('云端没有有效数据', 'error');
-                this.showSyncProgress('同步失败: 云端无数据', true, true);
-            }
-        } catch (error) {
-            console.error('紧急同步失败:', error);
-            this.showSyncNotification('同步失败: ' + error.message, 'error');
-            this.showSyncProgress('同步失败', true, true);
-        }
     }
 };
 
 // 页面加载后初始化云同步模块
 document.addEventListener('DOMContentLoaded', () => {
     CloudSync.init();
+    
+    // 监听日记保存事件
+    window.addEventListener('diary-saved', () => {
+        // 标记有未保存的更改
+        CloudSync.syncState.hasChanges = true;
+    });
 }); 

@@ -56,6 +56,17 @@ const CloudSync = {
     // 同步锁
     isSyncing: false,
     
+    // 自动同步相关配置
+    autoSyncConfig: {
+        enabled: true,           // 是否启用自动同步
+        interval: 30000,         // 同步间隔（毫秒）
+        lastSyncTime: null,      // 上次同步时间
+        syncInProgress: false,   // 是否正在同步
+        changeDetected: false,   // 是否检测到变化
+        retryCount: 0,           // 重试次数
+        maxRetries: 3            // 最大重试次数
+    },
+    
     // 初始化
     init() {
         console.log('初始化云同步服务...');
@@ -121,6 +132,9 @@ const CloudSync = {
             
             // 添加同步按钮，无论是否有访问令牌
             this.addSyncButton();
+            
+            // 初始化自动同步
+            this.initAutoSync();
             
             return true;
         } catch (error) {
@@ -642,46 +656,71 @@ const CloudSync = {
     
     // 同步数据
     async sync() {
-        // 如果正在同步，则返回
-        if (this.isSyncing) {
+        if (this.autoSyncConfig.syncInProgress) {
             console.log('同步正在进行中，跳过本次同步');
             return;
         }
-
+        
         try {
-            this.isSyncing = true;
+            this.autoSyncConfig.syncInProgress = true;
             this.showSyncProgress('正在同步数据...', true);
-
-            // 获取本地数据
-            const localData = await this.getLocalData();
             
-            try {
-                // 从云端下载数据
-                const cloudData = await this.downloadFromCloud();
-                
-                // 合并数据，确保不会重复
-                const mergedData = this.mergeData(localData, cloudData);
-                
-                // 保存合并后的数据到本地存储
-                localStorage.setItem('diaries', JSON.stringify(mergedData));
-                
-                // 保存到IndexedDB
-                await this.saveLocalData(mergedData);
-                
-                // 上传合并后的数据到云端
-                await this.uploadToCloud(mergedData);
-                
-                // 触发页面刷新
-                this.triggerPageRefresh();
-                
-                this.showSyncNotification('同步成功！', 'success');
-            } catch (error) {
-                console.error('同步过程出错:', error);
-                this.showSyncNotification('同步失败: ' + error.message, 'error');
+            // 执行原有的同步逻辑
+            await this._performSync();
+            
+            // 更新同步状态
+            this.autoSyncConfig.lastSyncTime = Date.now();
+            this.autoSyncConfig.changeDetected = false;
+            this.autoSyncConfig.retryCount = 0;
+            
+            // 保存配置
+            localStorage.setItem('autoSyncConfig', JSON.stringify(this.autoSyncConfig));
+            
+            this.showSyncNotification('同步成功！', 'success');
+        } catch (error) {
+            console.error('同步失败:', error);
+            this.autoSyncConfig.retryCount++;
+            
+            if (this.autoSyncConfig.retryCount < this.autoSyncConfig.maxRetries) {
+                console.log(`同步失败，将在30秒后重试（${this.autoSyncConfig.retryCount}/${this.autoSyncConfig.maxRetries}）`);
+                setTimeout(() => this.sync(), 30000);
+            } else {
+                this.showSyncNotification('同步失败，请检查网络连接', 'error');
             }
         } finally {
-            this.isSyncing = false;
+            this.autoSyncConfig.syncInProgress = false;
             this.showSyncProgress('同步完成', false);
+        }
+    },
+    
+    // 原有的同步逻辑
+    async _performSync() {
+        // 获取本地数据
+        const localData = await this.getLocalData();
+        
+        try {
+            // 从云端下载数据
+            const cloudData = await this.downloadFromCloud();
+            
+            // 合并数据
+            const mergedData = this.mergeData(localData, cloudData);
+            
+            // 保存到本地
+            localStorage.setItem('diaries', JSON.stringify(mergedData));
+            await this.saveLocalData(mergedData);
+            
+            // 上传到云端
+            await this.uploadToCloud(mergedData);
+            
+            // 刷新页面显示
+            this.triggerPageRefresh();
+        } catch (error) {
+            if (error.message === '文件不存在') {
+                // 如果是首次同步，直接上传本地数据
+                await this.uploadToCloud(localData);
+            } else {
+                throw error;
+            }
         }
     },
     
@@ -1198,6 +1237,127 @@ const CloudSync = {
         
         document.getElementById('close-token-help').addEventListener('click', () => {
             document.body.removeChild(helpModal);
+        });
+    },
+    
+    // 初始化自动同步
+    initAutoSync() {
+        console.log('初始化自动同步...');
+        
+        // 从localStorage加载配置
+        const savedConfig = localStorage.getItem('autoSyncConfig');
+        if (savedConfig) {
+            this.autoSyncConfig = { ...this.autoSyncConfig, ...JSON.parse(savedConfig) };
+        }
+        
+        // 启动自动同步
+        this.startAutoSync();
+        
+        // 监听数据变化
+        this.setupChangeDetection();
+        
+        // 监听网络状态
+        this.setupNetworkListener();
+        
+        // 监听页面可见性
+        this.setupVisibilityListener();
+    },
+    
+    // 启动自动同步
+    startAutoSync() {
+        if (!this.autoSyncConfig.enabled) return;
+        
+        // 清除可能存在的旧定时器
+        if (this.autoSyncTimer) {
+            clearInterval(this.autoSyncTimer);
+        }
+        
+        // 设置新的定时器
+        this.autoSyncTimer = setInterval(async () => {
+            if (this.autoSyncConfig.syncInProgress) {
+                console.log('同步正在进行中，跳过本次自动同步');
+                return;
+            }
+            
+            if (!navigator.onLine) {
+                console.log('网络离线，跳过本次自动同步');
+                return;
+            }
+            
+            if (document.hidden) {
+                console.log('页面不可见，跳过本次自动同步');
+                return;
+            }
+            
+            // 检查是否有数据变化
+            if (this.autoSyncConfig.changeDetected) {
+                console.log('检测到数据变化，开始自动同步');
+                await this.sync();
+                this.autoSyncConfig.changeDetected = false;
+            }
+            
+            // 定期全量同步（每5分钟）
+            const now = Date.now();
+            if (!this.autoSyncConfig.lastSyncTime || 
+                (now - this.autoSyncConfig.lastSyncTime) > 300000) {
+                console.log('执行定期全量同步');
+                await this.sync();
+            }
+        }, this.autoSyncConfig.interval);
+    },
+    
+    // 设置数据变化检测
+    setupChangeDetection() {
+        // 监听localStorage变化
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'diaries') {
+                this.autoSyncConfig.changeDetected = true;
+                console.log('检测到数据变化（通过storage事件）');
+            }
+        });
+        
+        // 监听IndexedDB变化
+        const db = indexedDB.open('DiaryDB', 1);
+        db.onsuccess = (event) => {
+            const database = event.target.result;
+            database.addEventListener('versionchange', () => {
+                this.autoSyncConfig.changeDetected = true;
+                console.log('检测到数据变化（通过IndexedDB事件）');
+            });
+        };
+        
+        // 重写数据保存方法以添加变化检测
+        const originalSaveLocalData = this.saveLocalData;
+        this.saveLocalData = async (data) => {
+            await originalSaveLocalData.call(this, data);
+            this.autoSyncConfig.changeDetected = true;
+            console.log('检测到数据变化（通过保存操作）');
+        };
+    },
+    
+    // 设置网络状态监听
+    setupNetworkListener() {
+        window.addEventListener('online', () => {
+            console.log('网络已连接，检查是否需要同步');
+            if (this.autoSyncConfig.changeDetected) {
+                this.sync();
+            }
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('网络已断开，暂停自动同步');
+        });
+    },
+    
+    // 设置页面可见性监听
+    setupVisibilityListener() {
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                console.log('页面变为可见，检查是否需要同步');
+                if (this.autoSyncConfig.changeDetected) {
+                    this.sync();
+                }
+            }
         });
     }
 };

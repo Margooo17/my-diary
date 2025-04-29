@@ -1,2114 +1,671 @@
-/*
- * 云同步模块 - 基于Dropbox API实现
- * 
- * 使用说明:
- * 1. 访问 https://www.dropbox.com/developers/apps 创建一个新的应用
- * 2. 选择"Scoped access" API
- * 3. 选择"App folder"访问类型（只需要访问应用专属文件夹）
- * 4. 为应用取一个名称，如"DiarySync"
- * 5. 创建应用后，在"OAuth 2"部分，添加以下重定向URI:
- *    - 确保添加您网站的根域名作为重定向URI: https://example.com 或 http://localhost
- *    - 注意: 不要在URI末尾添加斜杠或路径
- *    - 重定向URI必须与代码中的完全匹配，包括协议(http/https)和是否有www
- * 6. 复制"App key"，替换下面的APP_KEY值
- * 7. 在Dropbox开发者平台上允许隐式授权流程:
- *    - 在「Permissions」标签页中启用"Allow implicit grant"
- *    - 确保允许的范围包括"files.content.read"和"files.content.write"
+/**
+ * 云同步模块
+ * 处理与云存储的同步、备份和恢复功能
  */
-// 云同步模块
 const CloudSync = {
-    // Dropbox API 配置
-    APP_KEY: '', // 你的Dropbox API密钥
-    SYNC_FILE_PATH: '/diary_data.json', // 云端文件路径
-    
-    // Dropbox 客户端实例
+    // Dropbox API客户端
     dropboxClient: null,
     
-    // 加密密钥
-    encryptionKey: null,
-    
-    // 启用紧急模式 - 首次连接时自动强制刷新
-    shouldForceRefresh: false, 
-    
-    // 同步恢复模式 - 启用时会尝试更多恢复策略
-    recoveryMode: false,
-    
-    // 自动同步配置
-    autoSyncConfig: {
-        enabled: true,
-        interval: 60000, // 60秒检查一次
-        lastSyncTime: null,
-        syncInProgress: false,
-        changeDetected: false,
-        retryCount: 0,
-        maxRetries: 3
+    // 配置信息
+    config: {
+        clientId: '8fldvz7s2c4lsq5', // Dropbox应用键
+        redirectUri: window.location.origin + window.location.pathname,
+        cloudFolder: '/diary-data'
     },
     
-    // 本地备份密钥
-    LOCAL_BACKUP_KEY: 'diary_backup_data',
-    
-    // 同步锁
-    isSyncing: false,
-    
-    // 初始化
+    /**
+     * 初始化云同步功能
+     */
     init() {
-        console.log('初始化云同步模块...');
+        // 初始化Dropbox客户端
+        this.initDropboxClient();
         
-        // 检查环境状态
-        const envCheck = this.checkEnvironment();
-        if (!envCheck.ready) {
-            console.error('云同步环境检查失败:', envCheck.issues.join(', '));
-            return false;
-        }
+        // 绑定按钮事件
+        this.bindEvents();
         
-        // 初始化客户端
-        this.initClient();
-        
-        // 初始化加密密钥
-        this.initEncryptionKey();
-        
-        // 添加同步按钮
-        this.addSyncButton();
-        
-        // 处理重定向
-        this.handleRedirect();
-        
-        // 检查和恢复本地数据
-        this.checkAndRecoverLocalData();
-        
-        // 初始化自动同步配置
-        this.initAutoSync();
-        
-        // 确保IndexedDB初始化正确
-        this.initIndexedDB();
-        
-        // 检查是否需要启用紧急恢复模式
-        this.checkRecoveryMode();
-        
-        console.log('云同步模块初始化完成');
-        return true;
+        // 检查是否从授权重定向返回
+        this.checkAuthRedirect();
     },
     
-    // 初始化IndexedDB
-    initIndexedDB() {
-        console.log('确保IndexedDB初始化...');
-        
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open('DiaryDB', 1);
-            
-            request.onerror = event => {
-                console.error('初始化IndexedDB失败:', event);
-                reject(new Error('无法初始化IndexedDB'));
-            };
-            
-            request.onupgradeneeded = event => {
-                console.log('创建或升级IndexedDB数据库...');
-                const db = event.target.result;
-                
-                // 创建日记存储
-                if (!db.objectStoreNames.contains('diaries')) {
-                    console.log('创建diaries存储');
-                    db.createObjectStore('diaries', { keyPath: 'id' });
-                }
-            };
-            
-            request.onsuccess = async event => {
-                console.log('IndexedDB初始化成功');
-                const db = event.target.result;
-                
-                // 检查localStorage与IndexedDB是否同步
-                try {
-                    await this.syncLocalStorageToIndexedDB();
-                    resolve();
-                } catch (error) {
-                    console.error('同步localStorage数据到IndexedDB失败:', error);
-                    reject(error);
-                }
-            };
-        }).catch(error => {
-            console.error('初始化IndexedDB出错，但继续执行:', error);
+    /**
+     * 初始化Dropbox客户端
+     */
+    initDropboxClient() {
+        this.dropboxClient = new Dropbox.Dropbox({
+            clientId: this.config.clientId
         });
-    },
-    
-    // 同步localStorage数据到IndexedDB
-    async syncLocalStorageToIndexedDB() {
-        console.log('开始将localStorage数据同步到IndexedDB...');
         
-        // 先从localStorage获取数据
-        const localStorageData = localStorage.getItem('diaries');
-        if (!localStorageData) {
-            console.log('localStorage没有日记数据，跳过同步');
-            return;
-        }
-        
-        const diaries = JSON.parse(localStorageData);
-        console.log(`从localStorage获取了${diaries.length}条日记`);
-        
-        // 从IndexedDB获取数据
-        try {
-            const indexedDBDiaries = await this.getLocalData();
-            console.log(`从IndexedDB获取了${indexedDBDiaries.length}条日记`);
-            
-            // 比较数据是否一致
-            if (JSON.stringify(diaries) === JSON.stringify(indexedDBDiaries)) {
-                console.log('localStorage和IndexedDB数据一致，无需同步');
-                return;
-            }
-            
-            // 数据不一致，将localStorage数据写入IndexedDB
-            console.log('数据不一致，更新IndexedDB...');
-            await this.saveLocalData(diaries);
-            console.log('同步完成');
-        } catch (error) {
-            console.error('检查IndexedDB数据失败，直接写入:', error);
-            await this.saveLocalData(diaries);
-        }
-    },
-    
-    // 检查并恢复本地数据
-    checkAndRecoverLocalData() {
-        try {
-            const diaries = localStorage.getItem('diaries');
-            
-            // 如果没有日记数据但有备份，则尝试恢复
-            if ((!diaries || diaries === '[]') && localStorage.getItem(this.LOCAL_BACKUP_KEY)) {
-                console.log('检测到本地数据为空，但存在备份，尝试恢复数据...');
-                
-                const backupData = localStorage.getItem(this.LOCAL_BACKUP_KEY);
-                if (backupData) {
-                    localStorage.setItem('diaries', backupData);
-                    console.log('成功从备份恢复了本地数据');
-                    
-                    // 添加消息通知
-                    this.showSyncNotification('已从本地备份恢复数据', 'success');
-                    
-                    // 触发页面刷新以显示恢复的数据
-                    this.triggerPageRefresh();
-                    return true;
-                }
-            } else if (diaries && diaries !== '[]') {
-                // 如果有数据，创建备份
-                console.log('发现本地数据，创建备份...');
-                localStorage.setItem(this.LOCAL_BACKUP_KEY, diaries);
-            }
-        } catch (error) {
-            console.error('检查或恢复本地数据时出错:', error);
-        }
-        return false;
-    },
-
-    // 恢复本地数据的方法（用户可以手动调用）
-    recoverFromBackup() {
-        if (this.checkAndRecoverLocalData()) {
-            alert('数据恢复成功！页面将刷新以显示恢复的数据。');
-            window.location.reload();
-            return true;
+        // 检查是否已授权（同时支持两种可能的存储键）
+        const accessToken = localStorage.getItem('dropboxAccessToken') || localStorage.getItem('dropbox_access_token');
+        if (accessToken) {
+            this.dropboxClient.setAccessToken(accessToken);
+            // 确保两个存储键都有相同的令牌值
+            localStorage.setItem('dropboxAccessToken', accessToken);
+            localStorage.setItem('dropbox_access_token', accessToken);
+            this.showSyncStatus('已连接到Dropbox');
         } else {
-            const backupExists = localStorage.getItem(this.LOCAL_BACKUP_KEY);
-            if (!backupExists) {
-                alert('未找到数据备份，无法恢复数据。');
-            } else {
-                alert('恢复数据失败，请尝试刷新页面后再试。');
-            }
-            return false;
+            this.showSyncStatus('未连接到云存储');
         }
     },
     
-    // 初始化或获取加密密钥
-    initEncryptionKey() {
-        let key = localStorage.getItem('encryption_key');
-        if (!key) {
-            // 生成一个随机的32位密钥
-            key = CryptoJS.lib.WordArray.random(16).toString();
-            localStorage.setItem('encryption_key', key);
-        }
-        this.encryptionKey = key;
-        console.log('加密密钥已初始化');
-    },
-    
-    // 添加同步按钮
-    addSyncButton() {
-        console.log('正在添加云同步按钮...');
-        
-        // 尝试查找.data-actions元素
-        const dataActions = document.querySelector('.data-actions');
-        if (!dataActions) {
-            console.error('未找到.data-actions元素，无法添加云同步按钮');
-            setTimeout(() => this.addSyncButton(), 500);
-            return;
-        }
-        
-        // 检查是否已存在同步按钮
-        let syncBtn = document.querySelector('.sync-btn');
+    /**
+     * 绑定按钮事件
+     */
+    bindEvents() {
+        // 同步按钮
+        const syncBtn = document.getElementById('sync-btn');
         if (syncBtn) {
-            console.log('云同步按钮已存在，更新状态');
-            this.updateSyncButtonState(syncBtn);
-            return;
+            syncBtn.addEventListener('click', () => this.syncData());
         }
         
-        // 创建按钮
-        console.log('创建云同步按钮...');
-        syncBtn = document.createElement('button');
-        syncBtn.className = 'sync-btn';
-        
-        // 创建图标
-        const icon = document.createElement('span');
-        icon.className = 'sync-icon';
-        icon.innerHTML = `
-            <svg viewBox="0 0 24 24" width="16" height="16">
-                <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
-            </svg>
-        `;
-        
-        // 创建文本
-        const text = document.createElement('span');
-        text.className = 'sync-text';
-        
-        // 添加状态指示器
-        const statusDot = document.createElement('span');
-        statusDot.className = 'sync-status-dot';
-        
-        // 组装按钮
-        syncBtn.appendChild(icon);
-        syncBtn.appendChild(text);
-        syncBtn.appendChild(statusDot);
-        
-        // 更新按钮状态
-        this.updateSyncButtonState(syncBtn);
-        
-        // 添加点击事件
-        syncBtn.addEventListener('click', () => {
-            console.log('云同步按钮被点击');
-            this.syncButtonClicked();
-        });
-        
-        // 添加到DOM
-        dataActions.appendChild(syncBtn);
-        console.log('云同步按钮已添加到DOM');
-    },
-    
-    // 更新同步按钮状态
-    updateSyncButtonState(button) {
-        const accessToken = localStorage.getItem('dropbox_access_token');
-        const text = button.querySelector('.sync-text');
-        
-        if (!accessToken) {
-            button.setAttribute('data-status', 'not-synced');
-            button.title = '点击设置云同步';
-            text.textContent = '未同步';
-        } else {
-            if (this.autoSyncConfig.syncInProgress) {
-                button.setAttribute('data-status', 'syncing');
-                button.title = '正在同步...';
-                text.textContent = '同步中';
-            } else {
-                button.setAttribute('data-status', 'synced');
-                button.title = '已启用云同步';
-                text.textContent = '已同步';
-            }
+        // 备份恢复按钮
+        const backupRecoverBtn = document.getElementById('backup-recover-btn');
+        if (backupRecoverBtn) {
+            backupRecoverBtn.addEventListener('click', () => this.recoverFromBackup());
         }
     },
     
-    // 同步按钮点击事件
-    async syncButtonClicked() {
-        console.log('同步按钮被点击');
+    /**
+     * 检查是否从授权重定向返回
+     */
+    checkAuthRedirect() {
+        const hashParams = new URLSearchParams(window.location.hash.substr(1));
+        const accessToken = hashParams.get('access_token');
         
-        // 检查APP_KEY是否已设置
-        if (!this.APP_KEY) {
-            this.promptForAppKey();
-            return;
-        }
-        
-        // 检查环境状态
-        const envStatus = this.checkEnvironment();
-        if (!envStatus.ready) {
-            this.showSyncProgress(`无法同步: ${envStatus.issues.join(', ')}`, true, true);
-            return;
-        }
-        
-        // 检查是否已授权
-        if (!localStorage.getItem('dropbox_access_token')) {
-            console.log('未授权，开始授权流程');
-            await this.authorize();
-        } else {
-            // 验证令牌状态
-            const tokenStatus = await this.verifyTokenStatus();
+        if (accessToken) {
+            // 保存访问令牌（同时保存到两个存储键）
+            localStorage.setItem('dropboxAccessToken', accessToken);
+            localStorage.setItem('dropbox_access_token', accessToken);
+            this.dropboxClient.setAccessToken(accessToken);
             
-            if (tokenStatus.valid) {
-                console.log('令牌有效，开始同步');
-                await this.sync();
-            } else {
-                console.log('令牌状态检查失败:', tokenStatus.reason);
-                localStorage.removeItem('dropbox_access_token');
-                localStorage.removeItem('dropbox_token_expires');
-                await this.authorize();
-            }
+            // 清除URL中的访问令牌
+            window.history.replaceState(null, document.title, window.location.pathname);
+            
+            this.showSyncNotification('已成功连接到Dropbox', 'success');
+            this.showSyncStatus('已连接到Dropbox');
         }
     },
     
-    // 提示用户输入APP_KEY
-    promptForAppKey() {
-        // 检查是否已存在提示窗口
-        if (document.querySelector('.app-key-prompt')) {
-            console.log('设置窗口已存在，不重复创建');
+    /**
+     * 授权Dropbox
+     */
+    authorizeDropbox() {
+        const authUrl = this.dropboxClient.getAuthenticationUrl(this.config.redirectUri);
+        window.location.href = authUrl;
+    },
+    
+    /**
+     * 同步数据到云端
+     */
+    async syncData() {
+        console.log('开始同步数据');
+        this.showSyncProgress('正在同步...', false);
+        
+        // 如果未授权，先进行授权
+        if (!this.dropboxClient.getAccessToken()) {
+            this.authorizeDropbox();
             return;
         }
-
-        const appKeyPrompt = document.createElement('div');
-        appKeyPrompt.className = 'app-key-prompt';
-        appKeyPrompt.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            z-index: 10000;
-            width: 90%;
-            max-width: 600px;
-            max-height: 90vh;
-            overflow-y: auto;
-            text-align: left;
-            color: #333;
-            -webkit-overflow-scrolling: touch;
-        `;
         
-        // 添加遮罩层
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 9999;
-        `;
-        document.body.appendChild(overlay);
-        
-        appKeyPrompt.innerHTML = `
-            <div style="position:relative;padding-bottom:60px;">
-                <h3 style="margin-top:0;color:#1a73e8;text-align:center;margin-bottom:20px;font-size:18px;">设置Dropbox应用密钥</h3>
-                <div style="margin-bottom:20px;font-size:14px;">
-                    <p style="margin-bottom:15px;">请按照以下步骤获取Dropbox App Key：</p>
-                    <ol style="line-height:1.8;padding-left:20px;">
-                        <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
-                        <li>使用您的Dropbox账号登录</li>
-                        <li>在页面右上角，点击蓝色的"Create app"按钮</li>
-                        <li>在"Choose an API"部分，选择"Scoped access"</li>
-                        <li>在"Choose the type of access"部分，选择"App folder"</li>
-                        <li>在"Name your app"输入框中，输入一个名称（如"我的日记本"）</li>
-                        <li>点击"Create app"按钮创建应用</li>
-                        <li>在新页面中，找到"Settings"标签页（默认就在这个标签页）</li>
-                        <li>在"App key"部分，您会看到一串字符，这就是需要的App Key</li>
-                        <li>点击"Show"按钮显示完整的Key，然后复制它</li>
-                    </ol>
-                </div>
-                <div style="background:#f5f5f5;padding:15px;border-radius:8px;margin-bottom:20px;font-size:14px;">
-                    <p style="margin:0;font-weight:500;color:#333;">安全提示：</p>
-                    <ul style="margin:10px 0 0 0;padding-left:20px;color:#666;">
-                        <li>App Key 仅会保存在您的浏览器中</li>
-                        <li>不会上传到任何服务器</li>
-                        <li>仅用于访问您自己的Dropbox文件夹</li>
-                    </ul>
-                </div>
-                <input type="text" id="app-key-input" style="
-                    width: 100%;
-                    padding: 10px;
-                    margin: 10px 0;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    font-size: 16px;
-                    box-sizing: border-box;
-                " placeholder="粘贴 App Key...">
-                <div style="
-                    position: fixed;
-                    bottom: 0;
-                    left: 0;
-                    right: 0;
-                    padding: 10px 20px;
-                    background: white;
-                    border-top: 1px solid #eee;
-                    display: flex;
-                    justify-content: flex-end;
-                    gap: 10px;
-                ">
-                    <button id="cancel-app-key" style="
-                        padding: 8px 16px;
-                        background: #f0f0f0;
-                        border: none;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 16px;
-                    ">取消</button>
-                    <button id="submit-app-key" style="
-                        padding: 8px 16px;
-                        background: #4CAF50;
-                        color: white;
-                        border: none;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 16px;
-                    ">保存并继续</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(appKeyPrompt);
-        
-        // 移除任何已存在的设置云同步提示
-        const existingPrompt = document.querySelector('.sync-setup-prompt');
-        if (existingPrompt) {
-            existingPrompt.remove();
-        }
-        
-        // 设置事件监听
-        document.getElementById('cancel-app-key').addEventListener('click', () => {
-            document.body.removeChild(overlay);
-            document.body.removeChild(appKeyPrompt);
-        });
-        
-        document.getElementById('submit-app-key').addEventListener('click', async () => {
-            const appKeyInput = document.getElementById('app-key-input');
-            const appKey = appKeyInput.value.trim();
+        try {
+            // 获取所有日记数据（从不同的可能存储位置）
+            let diaryData;
             
-            if (!appKey) {
-                alert('请输入有效的App Key');
+            // 尝试从 DiaryApp 获取数据
+            if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.getAllEntries === 'function') {
+                diaryData = DiaryApp.getAllEntries();
+                console.log('从 DiaryApp 获取数据，找到', diaryData.length, '条记录');
+            } 
+            // 尝试从 Storage 获取数据
+            else if (typeof Storage !== 'undefined' && typeof Storage.getAllDiaries === 'function') {
+                diaryData = Storage.getAllDiaries();
+                console.log('从 Storage 获取数据，找到', diaryData.length, '条记录');
+            } 
+            // 直接从 localStorage 获取
+            else {
+                const diaryEntries = localStorage.getItem('diaryEntries');
+                const diaries = localStorage.getItem('diaries');
+                
+                if (diaryEntries) {
+                    diaryData = JSON.parse(diaryEntries);
+                    console.log('从 localStorage.diaryEntries 获取数据，找到', diaryData.length, '条记录');
+                } else if (diaries) {
+                    diaryData = JSON.parse(diaries);
+                    console.log('从 localStorage.diaries 获取数据，找到', diaryData.length, '条记录');
+                } else {
+                    diaryData = [];
+                    console.log('无法找到任何数据源');
+                }
+            }
+            
+            // 检查是否有数据
+            if (!Array.isArray(diaryData) || diaryData.length === 0) {
+                this.showSyncNotification('没有发现需要同步的数据', 'warning');
+                this.showSyncProgress('无数据可同步', true, true);
                 return;
             }
             
-            // 保存App Key
-            this.saveAppKey(appKey);
-            document.body.removeChild(overlay);
-            document.body.removeChild(appKeyPrompt);
+            const dataStr = JSON.stringify(diaryData);
             
-            // 重新初始化客户端
-            this.initClient();
+            // 创建上传文件
+            const filename = `diary_${new Date().toISOString().slice(0, 10)}.json`;
+            const filePath = `${this.config.cloudFolder}/${filename}`;
             
-            // 继续授权流程
-            await this.authorize();
-        });
-
-        // 防止iOS键盘弹出时窗口位置错误
-        const appKeyInput = document.getElementById('app-key-input');
-        appKeyInput.addEventListener('focus', () => {
-            setTimeout(() => {
-                appKeyPrompt.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 300);
-        });
-    },
-    
-    // 授权Dropbox - 使用弹出窗口方式（通过手动生成令牌）
-    async authorize() {
-        try {
-            console.log('开始Dropbox授权流程...');
-            
-            // 检查是否已存在授权窗口
-            if (document.querySelector('.auth-info')) {
-                console.log('授权窗口已存在，不重复创建');
-                return;
-            }
-            
-            // 创建授权弹窗提示
-            const authInfo = document.createElement('div');
-            authInfo.className = 'auth-info';
-            authInfo.style.cssText = `
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background-color: white;
-                padding: 20px;
-                border-radius: 12px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                z-index: 10000;
-                width: 90%;
-                max-width: 600px;
-                max-height: 90vh;
-                overflow-y: auto;
-                text-align: left;
-                color: #333;
-                -webkit-overflow-scrolling: touch;
-            `;
-            
-            // 添加遮罩层
-            const overlay = document.createElement('div');
-            overlay.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0,0,0,0.5);
-                z-index: 9999;
-            `;
-            document.body.appendChild(overlay);
-            
-            authInfo.innerHTML = `
-                <div style="position:relative;padding-bottom:60px;">
-                    <h3 style="margin-top:0;color:#1a73e8;text-align:center;margin-bottom:20px;font-size:18px;">Dropbox授权</h3>
-                    <p style="margin-bottom:15px;font-size:14px;">请按照以下步骤获取您的Dropbox访问令牌：</p>
-                    <ol style="text-align:left;line-height:1.8;font-size:14px;padding-left:20px;">
-                        <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
-                        <li>登录您的Dropbox账号</li>
-                        <li>点击您创建的应用名称</li>
-                        <li>在"权限"标签页中，勾选以下权限：
-                            <ul style="margin-top:5px;margin-bottom:5px;padding-left:20px;">
-                                <li>files.metadata.read</li>
-                                <li>files.metadata.write</li>
-                                <li>files.content.read</li>
-                                <li>files.content.write</li>
-                            </ul>
-                        </li>
-                        <li>点击"提交"保存权限</li>
-                        <li>在"设置"标签页中，找到"OAuth 2"部分</li>
-                        <li>点击"生成"按钮创建一个访问令牌</li>
-                        <li>复制生成的访问令牌（以"sl."开头的字符串）</li>
-                    </ol>
-                    <p style="margin:15px 0;font-size:14px;">将访问令牌粘贴到下方：</p>
-                    <input type="text" id="access-token-input" style="
-                        width: 100%;
-                        padding: 10px;
-                        margin: 10px 0;
-                        border: 1px solid #ddd;
-                        border-radius: 4px;
-                        font-size: 16px;
-                        box-sizing: border-box;
-                    " placeholder="粘贴访问令牌...">
-                    <div style="
-                        position: fixed;
-                        bottom: 0;
-                        left: 0;
-                        right: 0;
-                        padding: 10px 20px;
-                        background: white;
-                        border-top: 1px solid #eee;
-                        display: flex;
-                        justify-content: flex-end;
-                        gap: 10px;
-                    ">
-                        <button id="cancel-auth" style="
-                            padding: 12px 16px;
-                            background: #f0f0f0;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 16px;
-                        ">取消</button>
-                        <button id="submit-token" style="
-                            padding: 12px 16px;
-                            background: #4CAF50;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 16px;
-                        ">提交</button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(authInfo);
-            
-            // 设置事件监听
-            document.getElementById('cancel-auth').addEventListener('click', () => {
-                document.body.removeChild(overlay);
-                document.body.removeChild(authInfo);
-                console.log('用户取消了授权');
-            });
-            
-            document.getElementById('submit-token').addEventListener('click', async () => {
-                const tokenInput = document.getElementById('access-token-input');
-                const token = tokenInput.value.trim();
-                
-                if (!token) {
-                    alert('请输入有效的访问令牌');
-                    return;
-                }
-                
-                // 存储访问令牌
-                localStorage.setItem('dropbox_access_token', token);
-                document.body.removeChild(overlay);
-                document.body.removeChild(authInfo);
-                
-                // 初始化客户端
-                this.initClient();
-                
-                // 显示成功消息
-                this.showAuthSuccess();
-                
-                // 执行同步
-                await this.sync();
-            });
-
-            // 防止iOS键盘弹出时窗口位置错误
-            const tokenInput = document.getElementById('access-token-input');
-            tokenInput.addEventListener('focus', () => {
-                setTimeout(() => {
-                    authInfo.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 300);
-            });
-            
-            return true;
-        } catch (error) {
-            console.error('Dropbox授权失败:', error);
-            alert('连接云存储失败: ' + error.message);
-            return false;
-        }
-    },
-    
-    // 处理重定向回调
-    async handleRedirect() {
-        console.log('检查授权状态...');
-        
-        // 检查URL是否包含访问令牌
-        if (window.location.hash.includes('access_token=')) {
-            console.log('检测到授权回调(hash中)');
+            // 确保目标文件夹存在
             try {
-                // 解析URL中的访问令牌
-                const accessToken = this.parseAccessTokenFromUrl();
-                if (accessToken) {
-                    console.log('成功从URL提取访问令牌');
-                    // 存储访问令牌
-                    localStorage.setItem('dropbox_access_token', accessToken);
-                    
-                    // 清除URL中的hash以避免令牌泄露
-                    window.history.replaceState({}, document.title, window.location.pathname);
-                    
-                    // 显示授权成功消息
-                    this.showAuthSuccess();
-                    
-                    // 检查是否有待处理的同步操作
-                    const pendingSync = localStorage.getItem('pending_sync');
-                    
-                    if (pendingSync === 'true') {
-                        console.log('执行待处理的同步操作');
-                        localStorage.removeItem('pending_sync');
-                        
-                        // 初始化客户端
-                        this.initClient();
-                        
-                        // 执行同步
-                        await this.sync();
-                        return true;
-                    }
-                }
-            } catch (error) {
-                console.error('处理授权回调时出错:', error);
-                alert('连接云存储失败，请稍后再试。');
-            }
-        } 
-        // 检查是否Dropbox重定向接收器页面中包含了token
-        else if (document.title === "Dropbox - 授权完成" || document.title.includes("Dropbox - ")) {
-            console.log('检测到Dropbox重定向接收器页面');
-            
-            try {
-                // 尝试从页面内容中提取令牌
-                const pageContent = document.body.textContent || "";
-                const tokenMatch = pageContent.match(/access_token=([\w-]+)/);
-                
-                if (tokenMatch && tokenMatch[1]) {
-                    const accessToken = tokenMatch[1];
-                    console.log('从页面内容提取到访问令牌');
-                    
-                    // 存储访问令牌
-                    localStorage.setItem('dropbox_access_token', accessToken);
-                    
-                    // 检查是否有待处理的同步操作
-                    const pendingSync = localStorage.getItem('pending_sync');
-                    
-                    if (pendingSync === 'true') {
-                        console.log('执行待处理的同步操作');
-                        localStorage.removeItem('pending_sync');
-                        
-                        // 初始化客户端
-                        this.initClient();
-                        
-                        // 执行同步
-                        await this.sync();
-                        
-                        // 提示用户关闭此页面并返回原页面
-                        alert('授权成功！请关闭此页面，返回日记本应用。');
-                        
-                        return true;
-                    }
-                }
-            } catch (error) {
-                console.error('解析授权页面时出错:', error);
-            }
-        }
-        
-        // 检查本地存储中是否有pendingAuth标志和令牌
-        const pendingAuth = localStorage.getItem('cloudSync_pendingAuth');
-        const accessToken = localStorage.getItem('dropbox_access_token');
-        
-        if (pendingAuth === 'true' && accessToken) {
-            console.log('检测到授权已完成(通过本地存储)');
-            localStorage.removeItem('cloudSync_pendingAuth');
-            
-            // 检查是否有待处理的同步操作
-            const pendingSync = localStorage.getItem('pending_sync');
-            
-            if (pendingSync === 'true') {
-                console.log('执行待处理的同步操作');
-                localStorage.removeItem('pending_sync');
-                
-                // 初始化客户端
-                this.initClient();
-                
-                // 执行同步
-                await this.sync();
-                return true;
-            }
-        }
-        
-        return false;
-    },
-    
-    // 从URL解析访问令牌
-    parseAccessTokenFromUrl() {
-        try {
-            // 首先尝试从URL hash中获取令牌
-            if (window.location.hash && window.location.hash.includes('access_token=')) {
-                console.log('在URL hash中检测到访问令牌');
-            const hash = window.location.hash.substring(1);
-            const params = new URLSearchParams(hash);
-            const accessToken = params.get('access_token');
-                if (accessToken) {
-                    return accessToken;
-                }
-            }
-            
-            // 然后尝试从URL查询参数中获取
-            const urlParams = new URLSearchParams(window.location.search);
-            const accessToken = urlParams.get('access_token');
-            
-            return accessToken;
-        } catch (error) {
-            console.error('解析URL中的访问令牌失败:', error);
-            return null;
-        }
-    },
-    
-    // 加密数据 - 使用AES加密算法
-    async encryptData(data) {
-        console.log('开始加密数据...');
-        
-        try {
-            // 如果没有加密密钥，则生成一个新的
-            if (!this.encryptionKey) {
-                const storedKey = localStorage.getItem('encryption_key');
-                if (storedKey) {
-                    this.encryptionKey = storedKey;
-                } else {
-                    // 生成随机密钥并保存
-                    this.encryptionKey = this.generateRandomKey(32);
-                    localStorage.setItem('encryption_key', this.encryptionKey);
-                }
-            }
-            
-            // 使用CryptoJS进行AES加密
-            const encrypted = CryptoJS.AES.encrypt(data, this.encryptionKey).toString();
-            console.log('数据加密完成');
-            return encrypted;
-            
-        } catch (error) {
-            console.error('数据加密失败:', error);
-            throw new Error('数据加密失败: ' + (error.message || '未知错误'));
-        }
-    },
-    
-    // 解密数据 - 使用AES解密算法
-    async decryptData(encryptedData) {
-        console.log('开始解密数据...');
-        
-        try {
-            // 获取加密密钥
-            if (!this.encryptionKey) {
-                const storedKey = localStorage.getItem('encryption_key');
-                if (!storedKey) {
-                    throw new Error('未找到加密密钥，无法解密数据');
-                }
-                this.encryptionKey = storedKey;
-            }
-            
-            // 使用CryptoJS进行AES解密
-            let decrypted = '';
-            try {
-                decrypted = CryptoJS.AES.decrypt(encryptedData, this.encryptionKey).toString(CryptoJS.enc.Utf8);
-            } catch (decryptError) {
-                console.error('解密过程中出错:', decryptError);
-                
-                // 尝试使用备用解密方法
-                try {
-                    // 替换可能的损坏字符
-                    const cleanedData = encryptedData.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
-                    decrypted = CryptoJS.AES.decrypt(cleanedData, this.encryptionKey).toString(CryptoJS.enc.Utf8);
-                } catch (backupError) {
-                    throw new Error('所有解密方法均失败: ' + backupError.message);
-                }
-            }
-            
-            // 验证解密结果
-            if (!decrypted) {
-                throw new Error('解密失败，可能是密钥不正确');
-            }
-            
-            console.log('数据解密完成，长度:', decrypted.length);
-            return decrypted;
-        } catch (error) {
-            console.error('数据解密失败:', error);
-            throw new Error('数据解密失败: ' + (error.message || '未知错误'));
-        }
-    },
-    
-    // 生成随机密钥
-    generateRandomKey(length) {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        let result = '';
-        const charactersLength = chars.length;
-        for (let i = 0; i < length; i++) {
-            result += chars.charAt(Math.floor(Math.random() * charactersLength));
-        }
-        return result;
-    },
-    
-    // 同步数据
-    async sync() {
-        if (this.autoSyncConfig.syncInProgress) {
-            console.log('同步正在进行中，跳过本次同步');
-            return;
-        }
-        
-        try {
-            this.autoSyncConfig.syncInProgress = true;
-            this.showSyncProgress('正在同步数据...', true);
-            
-            console.log('开始执行同步操作...');
-            
-            // 设置同步模式参数
-            const syncOptions = {
-                recoveryMode: this.recoveryMode,
-                forceRefresh: false
-            };
-            
-            // 执行同步逻辑
-            const success = await this._performSync(syncOptions);
-            
-            if (success) {
-                // 更新同步状态
-                this.autoSyncConfig.lastSyncTime = Date.now();
-                this.autoSyncConfig.changeDetected = false;
-                this.autoSyncConfig.retryCount = 0;
-                
-                // 保存配置
-                localStorage.setItem('autoSyncConfig', JSON.stringify(this.autoSyncConfig));
-                
-                // 关闭恢复模式
-                if (this.recoveryMode) {
-                    console.log('同步成功，关闭恢复模式');
-                    this.recoveryMode = false;
-                }
-                
-                this.showSyncNotification('同步成功！', 'success');
-            } else {
-                console.log('同步返回失败状态');
-                this.autoSyncConfig.retryCount++;
-                this.showSyncNotification('同步未完成，请重试', 'error');
-            }
-        } catch (error) {
-            console.error('同步失败:', error);
-            this.autoSyncConfig.retryCount++;
-            
-            if (this.autoSyncConfig.retryCount < this.autoSyncConfig.maxRetries) {
-                console.log(`同步失败，将在30秒后重试（${this.autoSyncConfig.retryCount}/${this.autoSyncConfig.maxRetries}）`);
-                setTimeout(() => this.sync(), 30000);
-            } else {
-                // 尝试启用恢复模式
-                if (!this.recoveryMode) {
-                    console.log('多次同步失败，启用恢复模式');
-                    this.recoveryMode = true;
-                    setTimeout(() => this.sync(), 5000);
-                } else {
-                    this.showSyncNotification('同步失败，请检查网络连接或重新授权', 'error');
-                }
-            }
-        } finally {
-            this.autoSyncConfig.syncInProgress = false;
-            this.showSyncProgress('同步完成', false);
-        }
-    },
-    
-    // 原有的同步逻辑
-    async _performSync(options = {}) {
-        console.log('执行同步操作...', options);
-        
-        try {
-            // 获取本地数据
-            const localData = await this.getLocalData();
-            console.log(`获取到本地数据: ${localData.length}条日记`);
-            
-            try {
-                // 从云端下载数据
-                console.log('尝试从云端下载数据...');
-                const cloudData = await this.downloadFromCloud();
-                console.log(`获取到云端数据: ${cloudData.length}条日记`);
-                
-                // 合并数据
-                console.log('开始合并本地和云端数据...');
-                const mergedData = this.mergeData(localData, cloudData);
-                console.log(`合并后数据: ${mergedData.length}条日记`);
-                
-                // 保存到IndexedDB和localStorage
-                console.log('保存合并后的数据到本地...');
-                await this.saveLocalData(mergedData);
-                
-                // 确保localStorage中的数据是最新的
-                localStorage.setItem('diaries', JSON.stringify(mergedData));
-                
-                // 上传到云端
-                console.log('上传合并后的数据到云端...');
-                await this.uploadToCloud(mergedData);
-                
-                // 强制重新渲染页面
-                console.log('同步完成，刷新页面...');
-                this.triggerPageRefresh();
-                
-                return true;
-            } catch (error) {
-                if (error.message === '文件不存在') {
-                    console.log('云端文件不存在，首次同步，直接上传本地数据');
-                    await this.uploadToCloud(localData);
-                    return true;
-                } else {
-                    console.error('同步出错:', error);
-                    throw error;
-                }
-            }
-        } catch (error) {
-            console.error('同步失败:', error);
-            throw error;
-        }
-    },
-    
-    // 从本地数据库获取数据
-    async getLocalData() {
-        console.log('从IndexedDB获取数据...');
-        
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open('DiaryDB', 1);
-            
-            request.onerror = event => {
-                console.error('打开数据库失败:', event);
-                
-                // 如果IndexedDB失败，尝试从localStorage获取
-                try {
-                    const localData = localStorage.getItem('diaries');
-                    if (localData) {
-                        console.log('IndexedDB失败，使用localStorage数据');
-                        resolve(JSON.parse(localData));
-                        return;
-                    }
-                } catch (e) {
-                    console.error('获取localStorage数据也失败:', e);
-                }
-                
-                reject(new Error('无法访问本地数据库'));
-            };
-            
-            request.onupgradeneeded = event => {
-                console.log('数据库需要升级，创建diaries存储');
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains('diaries')) {
-                    db.createObjectStore('diaries', { keyPath: 'id' });
-                }
-            };
-            
-            request.onsuccess = event => {
-                try {
-                    const db = event.target.result;
-                    const transaction = db.transaction(['diaries'], 'readonly');
-                    const store = transaction.objectStore('diaries');
-                    const getAllRequest = store.getAll();
-                    
-                    getAllRequest.onsuccess = () => {
-                        const diaries = getAllRequest.result;
-                        console.log(`从IndexedDB获取了${diaries.length}条日记`);
-                        
-                        // 检查本地存储是否与IndexedDB一致
-                        try {
-                            const localData = localStorage.getItem('diaries');
-                            if (localData) {
-                                const localDiaries = JSON.parse(localData);
-                                if (diaries.length === 0 && localDiaries.length > 0) {
-                                    console.log('IndexedDB为空但localStorage有数据，使用localStorage数据');
-                                    resolve(localDiaries);
-                                    return;
-                                }
-                            }
-                        } catch (e) {
-                            console.error('检查localStorage失败:', e);
-                        }
-                        
-                        resolve(diaries);
-                    };
-                    
-                    getAllRequest.onerror = event => {
-                        console.error('获取日记失败:', event);
-                        
-                        // 如果获取失败，尝试从localStorage获取
-                        try {
-                            const localData = localStorage.getItem('diaries');
-                            if (localData) {
-                                console.log('IndexedDB查询失败，使用localStorage数据');
-                                resolve(JSON.parse(localData));
-                                return;
-                            }
-                        } catch (e) {
-                            console.error('获取localStorage数据也失败:', e);
-                        }
-                        
-                        reject(new Error('无法从本地数据库获取数据'));
-                    };
-                } catch (e) {
-                    console.error('处理IndexedDB请求时出错:', e);
-                    
-                    // 如果处理出错，尝试从localStorage获取
-                    try {
-                        const localData = localStorage.getItem('diaries');
-                        if (localData) {
-                            console.log('IndexedDB处理出错，使用localStorage数据');
-                            resolve(JSON.parse(localData));
-                            return;
-                        }
-                    } catch (e2) {
-                        console.error('获取localStorage数据也失败:', e2);
-                    }
-                    
-                    reject(new Error('处理IndexedDB请求时出错'));
-                }
-            };
-        });
-    },
-    
-    // 将数据保存到本地数据库
-    async saveLocalData(data) {
-        console.log(`开始保存${data.length}条日记到本地数据库...`);
-        
-        return new Promise((resolve, reject) => {
-            // 首先同步到localStorage
-            try {
-                console.log('保存到localStorage...');
-                localStorage.setItem('diaries', JSON.stringify(data));
-            } catch (e) {
-                console.error('保存到localStorage失败:', e);
-            }
-            
-            // 然后同步到IndexedDB
-            const request = indexedDB.open('DiaryDB', 1);
-            
-            request.onerror = event => {
-                console.error('打开数据库失败:', event);
-                // 即使IndexedDB失败，也算部分成功，因为已经保存到localStorage
-                resolve();
-            };
-            
-            request.onupgradeneeded = event => {
-                console.log('数据库需要升级，创建diaries存储');
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains('diaries')) {
-                    db.createObjectStore('diaries', { keyPath: 'id' });
-                }
-            };
-            
-            request.onsuccess = event => {
-                const db = event.target.result;
-                try {
-                    const transaction = db.transaction(['diaries'], 'readwrite');
-                    const store = transaction.objectStore('diaries');
-                    
-                    // 清空现有数据
-                    const clearRequest = store.clear();
-                    
-                    clearRequest.onsuccess = () => {
-                        console.log('本地数据库已清空，准备写入新数据');
-                        
-                        // 添加所有日记
-                        let addCounter = 0;
-                        let errorCounter = 0;
-                        
-                        if (data.length === 0) {
-                            console.log('没有数据需要写入本地数据库');
-                            resolve();
-                            return;
-                        }
-                        
-                        for (const diary of data) {
-                            try {
-                                const addRequest = store.add(diary);
-                                
-                                addRequest.onsuccess = () => {
-                                    addCounter++;
-                                    if (addCounter + errorCounter === data.length) {
-                                        console.log(`成功保存了${addCounter}条日记到本地数据库 (失败:${errorCounter})`);
-                                        resolve();
-                                    }
-                                };
-                                
-                                addRequest.onerror = event => {
-                                    console.error('保存单条日记失败:', event);
-                                    errorCounter++;
-                                    if (addCounter + errorCounter === data.length) {
-                                        console.log(`成功保存了${addCounter}条日记到本地数据库 (失败:${errorCounter})`);
-                                        resolve();
-                                    }
-                                };
-                            } catch (e) {
-                                console.error('添加日记时出错:', e);
-                                errorCounter++;
-                                if (addCounter + errorCounter === data.length) {
-                                    console.log(`成功保存了${addCounter}条日记到本地数据库 (失败:${errorCounter})`);
-                                    resolve();
-                                }
-                            }
-                        }
-                    };
-                    
-                    clearRequest.onerror = event => {
-                        console.error('清空数据库失败:', event);
-                        // 尝试直接添加
-                        console.log('尝试直接添加数据，不清空旧数据');
-                        
-                        let addCounter = 0;
-                        let errorCounter = 0;
-                        
-                        for (const diary of data) {
-                            try {
-                                const addRequest = store.put(diary); // 使用put替代add，覆盖已有记录
-                                
-                                addRequest.onsuccess = () => {
-                                    addCounter++;
-                                    if (addCounter + errorCounter === data.length) {
-                                        resolve();
-                                    }
-                                };
-                                
-                                addRequest.onerror = () => {
-                                    errorCounter++;
-                                    if (addCounter + errorCounter === data.length) {
-                                        resolve();
-                                    }
-                                };
-                            } catch (e) {
-                                errorCounter++;
-                                if (addCounter + errorCounter === data.length) {
-                                    resolve();
-                                }
-                            }
-                        }
-                        
-                        if (data.length === 0) {
-                            resolve();
-                        }
-                    };
-                } catch (e) {
-                    console.error('创建事务失败:', e);
-                    resolve(); // 即使失败也继续，因为已保存到localStorage
-                }
-            };
-        });
-    },
-    
-    // 合并本地数据和云端数据
-    mergeData(localData, cloudData) {
-        console.log('开始合并本地和云端数据');
-        
-        // 创建一个以ID为键的映射
-        const mergedMap = new Map();
-        
-        // 首先添加所有云端数据
-        if (Array.isArray(cloudData)) {
-            cloudData.forEach(item => {
-                if (item && item.id) {
-                    mergedMap.set(item.id, item);
-                }
-            });
-        }
-        
-        // 添加或更新本地数据（基于最后修改时间）
-        if (Array.isArray(localData)) {
-            localData.forEach(item => {
-                if (item && item.id) {
-                    const cloudItem = mergedMap.get(item.id);
-                    if (!cloudItem || new Date(item.lastModified) > new Date(cloudItem.lastModified)) {
-                        mergedMap.set(item.id, item);
-                    }
-                }
-            });
-        }
-        
-        // 转换回数组并按日期排序
-        const mergedData = Array.from(mergedMap.values());
-        mergedData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        
-        console.log(`合并完成，共有${mergedData.length}条日记`);
-        return mergedData;
-    },
-    
-    // 显示同步通知
-    showSyncNotification(message, type = 'info') {
-        const notificationArea = document.getElementById('syncNotification');
-        if (!notificationArea) {
-            console.log('未找到通知区域，创建一个');
-            const notificationDiv = document.createElement('div');
-            notificationDiv.id = 'syncNotification';
-            notificationDiv.style.position = 'fixed';
-            notificationDiv.style.bottom = '20px';
-            notificationDiv.style.right = '20px';
-            notificationDiv.style.padding = '10px 15px';
-            notificationDiv.style.borderRadius = '5px';
-            notificationDiv.style.zIndex = '1000';
-            document.body.appendChild(notificationDiv);
-        }
-        
-        const notification = document.getElementById('syncNotification');
-        notification.textContent = message;
-        
-        // 设置不同类型通知的样式
-        if (type === 'error') {
-            notification.style.backgroundColor = '#f44336';
-            notification.style.color = 'white';
-        } else if (type === 'success') {
-            notification.style.backgroundColor = '#4CAF50';
-            notification.style.color = 'white';
-        } else {
-            notification.style.backgroundColor = '#2196F3';
-            notification.style.color = 'white';
-        }
-        
-        notification.style.display = 'block';
-        
-        // 成功和错误通知5秒后自动消失
-        if (type === 'success' || type === 'error') {
-            setTimeout(() => {
-                notification.style.display = 'none';
-            }, 5000);
-        }
-    },
-    
-    // 触发页面刷新
-    triggerPageRefresh() {
-        console.log('触发页面刷新...');
-        
-        // 1. 直接从localStorage重新加载数据并渲染
-        try {
-            const diariesData = localStorage.getItem('diaries');
-            if (diariesData) {
-                console.log('从localStorage获取数据并直接刷新列表');
-                let diaries = [];
-                
-                try {
-                    diaries = JSON.parse(diariesData);
-                    console.log(`JSON解析成功，获取到${diaries.length}条日记`);
-                } catch (parseError) {
-                    console.error('解析localStorage数据失败:', parseError);
-                    
-                    // 尝试修复损坏的数据
-                    const repaired = this.attemptJSONRepair(diariesData);
-                    if (repaired) {
-                        diaries = repaired;
-                        console.log(`修复后获取到${diaries.length}条日记`);
-                        
-                        // 保存修复后的数据回localStorage
-                        localStorage.setItem('diaries', JSON.stringify(diaries));
-                    }
-                }
-                
-                if (typeof Diary !== 'undefined' && typeof Diary.renderDiaries === 'function') {
-                    console.log(`正在渲染${diaries.length}条日记`);
-                    Diary.renderDiaries(diaries);
-                    if (typeof Tags !== 'undefined' && typeof Tags.updateTagsList === 'function') {
-                        Tags.updateTagsList();
-                    }
-                    
-                    // 手动触发一次强制页面更新
-                    setTimeout(() => {
-                        console.log('执行延迟页面更新');
-                        Diary.renderDiaries(diaries);
-                    }, 1000);
-                }
-            }
-        } catch (e) {
-            console.error('直接刷新失败:', e);
-        }
-        
-        // 2. 触发自定义事件
-        try {
-            console.log('触发diaryDataRefreshed事件');
-            const refreshEvent = new CustomEvent('diaryDataRefreshed', {
-                detail: { time: new Date().toISOString(), force: true }
-            });
-            document.dispatchEvent(refreshEvent);
-            
-            // 延迟再触发一次，确保页面更新
-            setTimeout(() => {
-                console.log('触发延迟diaryDataRefreshed事件');
-                const delayedEvent = new CustomEvent('diaryDataRefreshed', {
-                    detail: { time: new Date().toISOString(), delayed: true }
+                await this.dropboxClient.filesCreateFolderV2({
+                    path: this.config.cloudFolder,
+                    autorename: false
                 });
-                document.dispatchEvent(delayedEvent);
-            }, 1500);
-        } catch (e) {
-            console.error('触发事件失败:', e);
-        }
-        
-        // 3. 调用回调函数（如果存在）
-        if (typeof updateDiaryList === 'function') {
-            console.log('调用updateDiaryList回调函数');
-            updateDiaryList();
-        }
-        
-        // 4. 手动刷新页面（紧急情况下使用）
-        if (this.shouldForceRefresh) {
-            console.log('执行强制页面刷新');
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
-            this.shouldForceRefresh = false;
-        }
-    },
-    
-    // 从云端下载数据
-    async downloadFromCloud() {
-        console.log('开始从云端下载数据...');
-        
-        if (!this.dropboxClient) {
-            console.error('Dropbox客户端未初始化');
-            throw new Error('云存储连接失败');
-        }
-        
-        try {
-            // 首先尝试获取文件链接
-            const response = await this.dropboxClient.filesDownload({
-                path: this.SYNC_FILE_PATH
-            });
-            
-            console.log('文件下载响应:', response);
-            
-            // 获取文件内容
-            const fileBlob = response.result.fileBlob || response.fileBlob;
-            if (!fileBlob) {
-                throw new Error('文件格式不正确');
-            }
-            
-            // 从Blob读取文本内容
-            const encryptedText = await this.readBlobAsText(fileBlob);
-            console.log('获取到加密数据，长度:', encryptedText.length);
-            
-            // 解密数据
-            const decryptedText = await this.decryptData(encryptedText);
-            console.log('解密后数据长度:', decryptedText.length);
-            
-            // 安全解析JSON
-            try {
-                const parsedData = this.safeJSONParse(decryptedText);
-                console.log('JSON解析成功，获取到数据项数量:', Array.isArray(parsedData) ? parsedData.length : '非数组数据');
-                return parsedData;
-            } catch (parseError) {
-                console.error('JSON解析失败，尝试修复数据格式:', parseError);
-                // 尝试修复可能的JSON格式问题
-                const fixedData = this.attemptJSONRepair(decryptedText);
-                console.log('修复后的数据:', fixedData ? '解析成功' : '修复失败');
-                return fixedData || [];
-            }
-        } catch (error) {
-            console.error('从云端下载失败:', error);
-            
-            // 检查是否是文件不存在的错误
-            if (error.status === 409 || (error.error && error.error.error_summary && error.error.error_summary.includes('path/not_found'))) {
-                throw new Error('文件不存在');
-            }
-            
-            throw new Error('从云端下载失败: ' + (error.message || '未知错误'));
-        }
-    },
-    
-    // 安全的JSON解析，处理多种格式问题
-    safeJSONParse(jsonString) {
-        if (!jsonString) return [];
-        
-        try {
-            // 尝试直接解析
-            const data = JSON.parse(jsonString);
-            
-            // 检查是否是数组
-            if (Array.isArray(data)) {
-                return data;
-            }
-            
-            // 如果是字符串（可能是嵌套的JSON字符串）
-            if (typeof data === 'string') {
-                try {
-                    const nestedData = JSON.parse(data);
-                    return Array.isArray(nestedData) ? nestedData : [];
-                } catch (e) {
-                    console.error('嵌套JSON解析失败:', e);
-                    return [];
+                console.log('已确认或创建云文件夹:', this.config.cloudFolder);
+            } catch (error) {
+                // 文件夹可能已存在，忽略错误
+                if (error.status !== 409) {
+                    console.error('创建云文件夹失败:', error);
                 }
             }
             
-            // 如果是对象但不是数组
-            if (data && typeof data === 'object') {
-                // 尝试找到数组属性
-                for (const key in data) {
-                    if (Array.isArray(data[key])) {
-                        return data[key];
-                    }
-                }
-            }
-            
-            return [];
-        } catch (error) {
-            console.error('JSON解析错误:', error);
-            throw error;
-        }
-    },
-    
-    // 尝试修复损坏的JSON字符串
-    attemptJSONRepair(jsonString) {
-        if (!jsonString) return null;
-        
-        try {
-            // 1. 尝试去除可能的BOM标记
-            const withoutBOM = jsonString.replace(/^\uFEFF/, '');
-            
-            // 2. 尝试移除开头和结尾的引号（如果有）
-            let cleaned = withoutBOM;
-            if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-                cleaned = cleaned.substring(1, cleaned.length - 1);
-            }
-            
-            // 3. 尝试解析修复后的字符串
-            return JSON.parse(cleaned);
-        } catch (e1) {
-            try {
-                // 4. 尝试修复常见的转义问题
-                const escaped = jsonString.replace(/\\"/g, '"').replace(/\\\\"/g, '\\"');
-                return JSON.parse(escaped);
-            } catch (e2) {
-                try {
-                    // 5. 尝试针对可能双重转义的情况
-                    const doubleEscaped = jsonString.replace(/\\\\/g, '\\');
-                    return JSON.parse(doubleEscaped);
-                } catch (e3) {
-                    console.error('所有JSON修复尝试均失败');
-                    // 最后尝试查找有效的JSON数组部分
-                    const arrayStart = jsonString.indexOf('[');
-                    const arrayEnd = jsonString.lastIndexOf(']');
-                    if (arrayStart !== -1 && arrayEnd !== -1 && arrayStart < arrayEnd) {
-                        try {
-                            const arrayPart = jsonString.substring(arrayStart, arrayEnd + 1);
-                            return JSON.parse(arrayPart);
-                        } catch (e4) {
-                            return null;
-                        }
-                    }
-                    return null;
-                }
-            }
-        }
-    },
-    
-    // 将Blob读取为文本
-    readBlobAsText(blob) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = function() {
-                resolve(reader.result);
-            };
-            reader.onerror = function() {
-                reject(new Error('读取文件内容失败'));
-            };
-            reader.readAsText(blob);
-        });
-    },
-    
-    // 上传数据到云端
-    async uploadToCloud(data) {
-        console.log('开始上传数据到云端...');
-        
-        if (!this.dropboxClient) {
-            console.error('Dropbox客户端未初始化');
-            throw new Error('云存储连接失败');
-        }
-        
-        try {
-            // 加密数据
-            const encryptedData = await this.encryptData(data);
-            console.log('数据加密完成，准备上传');
-            
-            // 使用Dropbox API上传文件
+            // 上传到Dropbox
+            console.log('开始上传数据到:', filePath);
             const response = await this.dropboxClient.filesUpload({
-                path: this.SYNC_FILE_PATH,
-                contents: encryptedData,
+                path: filePath,
+                contents: dataStr,
                 mode: 'overwrite'
             });
             
-            console.log('数据上传成功:', response);
-            return response;
+            console.log('同步完成:', response);
+            this.showSyncNotification(`已成功同步${diaryData.length}条日记到云端`, 'success');
+            this.showSyncProgress('同步成功', true);
+            
+            // 创建备份
+            await this.createBackup(dataStr);
         } catch (error) {
-            console.error('上传到云端失败:', error);
-            throw new Error('上传到云端失败: ' + (error.message || '未知错误'));
+            console.error('同步失败:', error);
+            this.showSyncNotification('同步失败: ' + error.message, 'error');
+            this.showSyncProgress('同步失败', true, true);
         }
     },
     
-    // 显示同步进度
-    showSyncProgress(message, autoHide = false, isError = false) {
-        // 检查是否已存在进度条
-        let progressBar = document.querySelector('.sync-progress');
-        if (!progressBar) {
-            progressBar = document.createElement('div');
-            progressBar.className = 'sync-progress';
-            document.body.appendChild(progressBar);
-        }
-        
-        // 设置消息和样式
-        progressBar.textContent = message;
-        progressBar.style.display = 'block';
-        
-        if (isError) {
-            progressBar.classList.add('error');
-        } else {
-            progressBar.classList.remove('error');
-        }
-        
-        // 自动隐藏
-        if (autoHide) {
-            setTimeout(() => {
-                progressBar.style.display = 'none';
-            }, 3000);
-        }
-    },
-    
-    // 检查环境状态
-    checkEnvironment() {
-        const issues = [];
-        
-        // 检查网络连接
-        if (!navigator.onLine) {
-            issues.push('网络连接不可用');
-        }
-        
-        // 检查Dropbox SDK是否加载
-        if (typeof Dropbox === 'undefined' || typeof Dropbox.Dropbox !== 'function') {
-            issues.push('Dropbox SDK未正确加载');
-        }
-        
-        // 检查CryptoJS是否加载
-        if (typeof CryptoJS === 'undefined' || typeof CryptoJS.AES === 'undefined') {
-            issues.push('加密库未正确加载');
-        }
-        
-        return {
-            ready: issues.length === 0,
-            issues
-        };
-    },
-    
-    // 验证当前令牌状态
-    async verifyTokenStatus() {
-        const token = localStorage.getItem('dropbox_access_token');
-        
-        if (!token) {
-            return { valid: false, reason: '未授权' };
-        }
-        
-        // 检查本地存储的过期时间
-        const expiresAt = localStorage.getItem('dropbox_token_expires');
-        if (expiresAt) {
-            const expireTime = parseInt(expiresAt);
-            if (Date.now() > expireTime) {
-                return { valid: false, reason: '令牌已过期' };
-            }
-        }
-        
-        // 尝试向Dropbox发送一个请求来验证令牌
+    /**
+     * 创建数据备份
+     */
+    async createBackup(dataStr) {
         try {
-            console.log('开始验证Dropbox令牌...');
-            this.dropboxClient.setAccessToken(token);
-            
-            // 尝试API调用来验证令牌是否有效
+            // 创建备份文件夹（如果不存在）
             try {
-                // 先尝试新版本API调用格式
-                console.log('尝试使用新版API验证令牌');
-                try {
-                    await this.dropboxClient.usersGetCurrentAccount();
-                    console.log('令牌验证成功');
-                    return { valid: true };
-                } catch (innerError) {
-                    if (innerError.status === 401) {
-                        console.error('令牌无效:', innerError);
-                        return { valid: false, reason: '令牌无效或已过期' };
-                    }
-                    
-                    // 如果这不是授权错误，可能是API调用方式不对，尝试另一种方式
-                    console.log('尝试使用备用API格式验证令牌');
-                    await this.dropboxClient.users.getCurrentAccount();
-                    console.log('令牌验证成功(备用API)');
-                    return { valid: true };
-                }
-            } catch (apiError) {
-                console.error('所有API调用验证方法均失败:', apiError);
-                
-                // 检查是否是授权错误
-                if (apiError.status === 401) {
-                    return { valid: false, reason: '令牌无效或已过期' };
-                }
-                
-                // 如果不是401错误，可能是API结构问题，但令牌可能仍然有效
-                // 我们尝试一个不同的简单API调用
-                try {
-                    await this.dropboxClient.checkUser({ query: 'test' });
-                    console.log('令牌可能有效(简单API调用成功)');
-                    return { valid: true };
-                } catch (finalError) {
-                    if (finalError.status === 401) {
-                        return { valid: false, reason: '令牌无效或已过期' };
-                    }
-                    // 如果有其他错误，我们假设令牌仍然有效，因为这可能是API结构问题
-                    console.warn('无法确认令牌状态，假定有效', finalError);
-                    return { valid: true };
-                }
-            }
-        } catch (error) {
-            console.error('验证令牌状态时发生错误:', error);
-            
-            // 如果是授权错误，明确标记为无效
-            if (error.status === 401) {
-                return { valid: false, reason: '令牌无效或已过期' };
-            }
-            
-            // 对于其他错误，我们返回可能无效，但提供详细错误
-            return { 
-                valid: false, 
-                reason: '验证过程中发生错误', 
-                error: error.message || '未知错误' 
-            };
-        }
-    },
-    
-    // 初始化Dropbox客户端
-    initClient() {
-        try {
-            console.log('初始化Dropbox客户端...');
-            
-            // 检查APP_KEY是否已设置
-            if (!this.APP_KEY) {
-                console.warn('未设置APP_KEY，无法完成Dropbox客户端初始化');
-                return false;
-            }
-            
-            // 获取访问令牌
-            const accessToken = localStorage.getItem('dropbox_access_token');
-            
-            if (!accessToken) {
-                console.warn('未找到访问令牌，Dropbox客户端初始化无法完成');
-                return false;
-            }
-            
-            // 尝试初始化客户端
-            try {
-                // 检查新版本SDK
-                if (typeof Dropbox.Dropbox === 'function') {
-                    // 新版本SDK (v10+)
-                    this.dropboxClient = new Dropbox.Dropbox({
-                        clientId: this.APP_KEY,
-                        accessToken: accessToken
-                    });
-                    console.log('使用新版本SDK初始化Dropbox客户端成功');
-                } else {
-                    // 旧版本SDK
-                    this.dropboxClient = new Dropbox({
-                        clientId: this.APP_KEY,
-                        accessToken: accessToken
-                    });
-                    console.log('使用旧版本SDK初始化Dropbox客户端成功');
-                }
-                
-                this.initialized = true;
-                return true;
+                await this.dropboxClient.filesCreateFolderV2({
+                    path: '/backups',
+                    autorename: false
+                });
             } catch (error) {
-                console.error('初始化Dropbox客户端实例失败:', error);
-                return false;
+                // 文件夹可能已存在，忽略错误
+                if (error.status !== 409) {
+                    throw error;
+                }
             }
+            
+            // 生成备份文件名，包含时间戳
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupPath = `/backups/diary_backup_${timestamp}.json`;
+            
+            // 上传备份文件
+            await this.dropboxClient.filesUpload({
+                path: backupPath,
+                contents: dataStr,
+                mode: 'add'
+            });
+            
+            console.log('备份创建成功');
         } catch (error) {
-            console.error('初始化Dropbox客户端时出错:', error);
-            return false;
+            console.error('创建备份失败:', error);
+            this.showSyncNotification('创建备份失败: ' + error.message, 'warning');
         }
     },
     
-    // 显示授权成功消息
-    showAuthSuccess() {
-        // 创建一个美观的成功消息
-        const successMsg = document.createElement('div');
-        successMsg.style.position = 'fixed';
-        successMsg.style.top = '20px';
-        successMsg.style.left = '50%';
-        successMsg.style.transform = 'translateX(-50%)';
-        successMsg.style.backgroundColor = '#4CAF50';
-        successMsg.style.color = 'white';
-        successMsg.style.padding = '15px 20px';
-        successMsg.style.borderRadius = '5px';
-        successMsg.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
-        successMsg.style.zIndex = '10000';
-        successMsg.textContent = 'Dropbox授权成功！即将开始同步...';
+    /**
+     * 从备份恢复数据
+     */
+    async recoverFromBackup() {
+        console.log('开始从备份恢复数据');
+        this.showSyncProgress('正在获取备份列表...', false);
         
-        document.body.appendChild(successMsg);
+        if (!this.dropboxClient.getAccessToken()) {
+            this.showSyncNotification('未连接云存储，请先授权Dropbox', 'error');
+            this.showSyncProgress('未连接云存储', true, true);
+            return;
+        }
         
-        // 3秒后自动消失
-        setTimeout(() => {
-            successMsg.style.opacity = '0';
-            successMsg.style.transition = 'opacity 0.5s ease';
-            setTimeout(() => {
-                if (document.body.contains(successMsg)) {
-                    document.body.removeChild(successMsg);
+        try {
+            // 获取备份文件夹中的文件列表
+            const response = await this.dropboxClient.filesListFolder({
+                path: '/backups'
+            });
+            
+            const backups = response.result.entries
+                .filter(entry => entry['.tag'] === 'file')
+                .sort((a, b) => new Date(b.server_modified) - new Date(a.server_modified)); // 按修改时间降序排序
+            
+            if (backups.length === 0) {
+                this.showSyncNotification('未找到可用的备份', 'warning');
+                this.showSyncProgress('没有找到备份文件', true, true);
+                return;
+            }
+            
+            // 显示备份选择对话框
+            const backupDialog = document.createElement('div');
+            backupDialog.className = 'backup-dialog-overlay';
+            backupDialog.innerHTML = `
+                <div class="backup-dialog">
+                    <h3>选择要恢复的备份</h3>
+                    <div class="backup-list">
+                        ${backups.map((backup, index) => `
+                            <div class="backup-item" data-index="${index}">
+                                <div class="backup-info">
+                                    <span class="backup-name">${backup.name}</span>
+                                    <span class="backup-date">${new Date(backup.server_modified).toLocaleString()}</span>
+                                    <span class="backup-size">${this.formatFileSize(backup.size)}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="backup-dialog-buttons">
+                        <button class="btn-secondary cancel-backup-btn">取消</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(backupDialog);
+            
+            // 等待用户选择备份文件
+            const selectedBackup = await new Promise(resolve => {
+                const backupItems = backupDialog.querySelectorAll('.backup-item');
+                backupItems.forEach(item => {
+                    item.addEventListener('click', () => {
+                        const index = parseInt(item.getAttribute('data-index'));
+                        document.body.removeChild(backupDialog);
+                        resolve(backups[index]);
+                    });
+                });
+                
+                const cancelBtn = backupDialog.querySelector('.cancel-backup-btn');
+                cancelBtn.addEventListener('click', () => {
+                    document.body.removeChild(backupDialog);
+                    resolve(null);
+                });
+            });
+            
+            if (!selectedBackup) {
+                this.showSyncProgress('已取消恢复操作', true);
+                return;
+            }
+            
+            // 下载选择的备份文件
+            this.showSyncProgress(`正在恢复备份: ${selectedBackup.name}...`, false);
+            
+            const fileData = await this.dropboxClient.filesDownload({
+                path: selectedBackup.path_lower
+            });
+            
+            // 读取备份文件内容
+            const reader = new FileReader();
+            const dataPromise = new Promise(resolve => {
+                reader.onload = () => resolve(reader.result);
+                reader.readAsText(fileData.result.fileBlob);
+            });
+            
+            const dataStr = await dataPromise;
+            const diaryData = JSON.parse(dataStr);
+            
+            if (!Array.isArray(diaryData)) {
+                this.showSyncNotification('备份文件格式不正确', 'error');
+                this.showSyncProgress('恢复失败：无效的备份格式', true, true);
+                return;
+            }
+
+            let restored = false;
+            
+            // 尝试使用DiaryApp恢复
+            if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.restoreFromBackup === 'function') {
+                restored = DiaryApp.restoreFromBackup(diaryData);
+                console.log('通过DiaryApp恢复数据', restored ? '成功' : '失败');
+            }
+            
+            // 尝试使用Storage恢复
+            if (!restored && typeof Storage !== 'undefined' && typeof Storage.saveAllDiaries === 'function') {
+                Storage.saveAllDiaries(diaryData);
+                console.log('通过Storage恢复数据');
+                restored = true;
+            }
+            
+            // 直接保存到localStorage（同时存储到两个位置以确保兼容性）
+            if (!restored) {
+                // 存储到所有可能的位置，确保跨设备兼容
+                localStorage.setItem('diaryEntries', JSON.stringify(diaryData));
+                localStorage.setItem('diaries', JSON.stringify(diaryData));
+                console.log('数据同时保存到diaryEntries和diaries');
+                restored = true;
+            } else {
+                // 也确保所有地方都有同样的数据
+                if (localStorage.getItem('diaryEntries') !== null) {
+                    localStorage.setItem('diaries', localStorage.getItem('diaryEntries'));
+                } else if (localStorage.getItem('diaries') !== null) {
+                    localStorage.setItem('diaryEntries', localStorage.getItem('diaries'));
                 }
-            }, 500);
+            }
+            
+            if (restored) {
+                this.showSyncNotification(`成功从备份恢复了${diaryData.length}条日记`, 'success');
+                this.showSyncProgress('恢复完成', true);
+                
+                // 刷新页面数据
+                this.triggerPageRefresh();
+            } else {
+                this.showSyncNotification('恢复失败：无法存储数据', 'error');
+                this.showSyncProgress('恢复失败', true, true);
+            }
+        } catch (error) {
+            console.error('恢复备份失败:', error);
+            this.showSyncNotification('恢复备份失败: ' + error.message, 'error');
+            this.showSyncProgress('恢复失败', true, true);
+        }
+    },
+    
+    /**
+     * 显示同步状态
+     */
+    showSyncStatus(message) {
+        const statusElement = document.getElementById('sync-status');
+        if (statusElement) {
+            statusElement.textContent = message;
+        }
+    },
+    
+    /**
+     * 显示同步进度
+     */
+    showSyncProgress(message, isComplete, isError = false) {
+        // 更新状态消息
+        this.showSyncStatus(message);
+        
+        // 更新进度条
+        const progressBar = document.getElementById('sync-progress-bar');
+        if (progressBar) {
+            if (isComplete) {
+                progressBar.style.width = '100%';
+                if (isError) {
+                    progressBar.style.backgroundColor = '#f44336'; // 错误状态颜色
+                } else {
+                    progressBar.style.backgroundColor = '#4caf50'; // 成功状态颜色
+                }
+            } else {
+                // 正在进行中的动画效果
+                progressBar.style.width = '90%';
+                progressBar.style.backgroundColor = '';
+            }
+            
+            // 完成后重置
+            if (isComplete) {
+                setTimeout(() => {
+                    progressBar.style.width = '0';
+                    setTimeout(() => {
+                        progressBar.style.backgroundColor = '';
+                    }, 300);
+                }, 2000);
+            }
+        }
+    },
+    
+    /**
+     * 显示同步通知
+     */
+    showSyncNotification(message, type = 'info') {
+        // 移除现有通知
+        const existingNotifications = document.querySelectorAll('.sync-notification');
+        existingNotifications.forEach(notification => {
+            document.body.removeChild(notification);
+        });
+        
+        // 创建新通知
+        const notification = document.createElement('div');
+        notification.className = `sync-notification ${type}`;
+        
+        // 添加图标
+        let icon = '';
+        switch (type) {
+            case 'success': icon = 'check-circle'; break;
+            case 'error': icon = 'exclamation-circle'; break;
+            case 'warning': icon = 'exclamation-triangle'; break;
+            case 'info': icon = 'info-circle'; break;
+        }
+        
+        notification.innerHTML = `
+            <i class="fas fa-${icon}"></i>
+            <span>${message}</span>
+        `;
+        
+        // 添加到页面
+        document.body.appendChild(notification);
+        
+        // 显示动画
+        setTimeout(() => {
+            notification.style.opacity = '1';
+        }, 10);
+        
+        // 自动关闭
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            notification.style.transform = 'translateX(100%)';
+            
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    document.body.removeChild(notification);
+                }
+            }, 300);
         }, 3000);
     },
     
-    // 辅助方法：显示如何获取访问令牌的说明
-    showTokenHelpModal() {
-        const helpModal = document.createElement('div');
-        helpModal.className = 'token-help-modal';
-        helpModal.style.position = 'fixed';
-        helpModal.style.top = '50%';
-        helpModal.style.left = '50%';
-        helpModal.style.transform = 'translate(-50%, -50%)';
-        helpModal.style.backgroundColor = 'white';
-        helpModal.style.padding = '20px';
-        helpModal.style.borderRadius = '8px';
-        helpModal.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
-        helpModal.style.zIndex = '10001';
-        helpModal.style.maxWidth = '500px';
-        helpModal.style.width = '90%';
+    // 格式化文件大小显示
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
         
-        helpModal.innerHTML = `
-            <h3 style="margin-top:0;color:#1a73e8;">如何获取Dropbox访问令牌</h3>
-            <ol style="text-align:left;line-height:1.5;">
-                <li>在Dropbox授权页面中，点击"<strong>允许</strong>"按钮授权应用访问</li>
-                <li>授权成功后，页面会显示"<strong>授权完成</strong>"字样</li>
-                <li>查看页面地址栏或内容，找到类似下面的文本:
-                    <div style="background:#f5f5f5;padding:8px;margin:8px 0;border-radius:4px;word-break:break-all;font-family:monospace;">
-                        access_token=<strong style="color:#e91e63;">sl.Bk7aBcD...</strong>&token_type=bearer&...
-                    </div>
-                </li>
-                <li>复制 <strong style="color:#e91e63;">sl.Bk7aBcD...</strong> 部分（不包含access_token=和后面的&符号）</li>
-                <li>将复制的令牌粘贴到输入框中</li>
-            </ol>
-            <div style="text-align:center;margin-top:15px;">
-                <button id="close-token-help" style="padding:8px 16px;background:#1a73e8;color:white;border:none;border-radius:4px;cursor:pointer;">了解了</button>
-            </div>
-        `;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(1024));
         
-        document.body.appendChild(helpModal);
-        
-        document.getElementById('close-token-help').addEventListener('click', () => {
-            document.body.removeChild(helpModal);
-        });
+        return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
     },
-    
-    // 初始化自动同步
-    initAutoSync() {
-        console.log('初始化自动同步...');
-        
-        // 从localStorage加载配置
-        const savedConfig = localStorage.getItem('autoSyncConfig');
-        if (savedConfig) {
-            this.autoSyncConfig = { ...this.autoSyncConfig, ...JSON.parse(savedConfig) };
-            console.log('已加载自动同步配置:', this.autoSyncConfig);
-        } else {
-            console.log('使用默认自动同步配置:', this.autoSyncConfig);
-            // 保存默认配置
-            localStorage.setItem('autoSyncConfig', JSON.stringify(this.autoSyncConfig));
-        }
-        
-        // 检查Dropbox授权状态
-        const accessToken = localStorage.getItem('dropbox_access_token');
-        if (!accessToken) {
-            console.warn('未找到Dropbox访问令牌，自动同步可能无法工作');
-            return;
-        }
-        
-        // 启动自动同步
-        this.startAutoSync();
-        
-        // 监听数据变化
-        this.setupChangeDetection();
-        
-        // 监听网络状态
-        this.setupNetworkListener();
-        
-        // 监听页面可见性
-        this.setupVisibilityListener();
-        
-        // 立即执行一次同步检查
-        this.checkAndSync();
-        
-        console.log('自动同步初始化完成');
-    },
-    
-    // 检查并执行同步
-    async checkAndSync() {
-        console.log('执行同步检查...');
-        
-        if (this.autoSyncConfig.syncInProgress) {
-            console.log('同步正在进行中，跳过本次检查');
-            return;
-        }
-        
-        if (!navigator.onLine) {
-            console.log('网络离线，跳过本次检查');
-            return;
-        }
-        
-        // 获取本地数据
-        const localData = await this.getLocalData();
-        console.log('当前本地数据条数:', localData.length);
-        
+
+    /**
+     * 检查访问令牌状态
+     */
+    async verifyTokenStatus() {
         try {
-            // 尝试从云端获取数据
-            const cloudData = await this.downloadFromCloud();
-            console.log('云端数据条数:', cloudData.length);
-            
-            // 比较数据
-            if (JSON.stringify(localData) !== JSON.stringify(cloudData)) {
-                console.log('检测到数据不一致，开始同步');
-                await this.sync();
-            } else {
-                console.log('数据已是最新，无需同步');
+            // 检查是否有令牌
+            const token = this.dropboxClient.getAccessToken();
+            if (!token) {
+                return { valid: false, message: '未授权' };
             }
+            
+            // 尝试获取用户信息以验证令牌有效性
+            await this.dropboxClient.usersGetCurrentAccount();
+            return { valid: true, message: '令牌有效' };
         } catch (error) {
-            console.error('同步检查失败:', error);
-            if (error.message === '文件不存在') {
-                console.log('云端文件不存在，上传本地数据');
-                await this.uploadToCloud(localData);
-            }
+            console.error('令牌验证失败:', error);
+            return { valid: false, message: '令牌无效或已过期' };
         }
     },
     
-    // 启动自动同步
-    startAutoSync() {
-        if (!this.autoSyncConfig.enabled) {
-            console.log('自动同步已禁用');
-            return;
-        }
-        
-        console.log('启动自动同步，间隔:', this.autoSyncConfig.interval, 'ms');
-        
-        // 清除可能存在的旧定时器
-        if (this.autoSyncTimer) {
-            clearInterval(this.autoSyncTimer);
-            console.log('清除旧的同步定时器');
-        }
-        
-        // 设置新的定时器
-        this.autoSyncTimer = setInterval(async () => {
-            console.log('定时器触发，检查是否需要同步');
-            
-            if (this.autoSyncConfig.syncInProgress) {
-                console.log('同步正在进行中，跳过本次自动同步');
-                return;
-            }
-            
-            if (!navigator.onLine) {
-                console.log('网络离线，跳过本次自动同步');
-                return;
-            }
-            
-            if (document.hidden) {
-                console.log('页面不可见，跳过本次自动同步');
-                return;
-            }
-            
-            // 检查是否有数据变化
-            if (this.autoSyncConfig.changeDetected) {
-                console.log('检测到数据变化，开始自动同步');
-                await this.sync();
-                this.autoSyncConfig.changeDetected = false;
-            }
-            
-            // 定期全量同步（每5分钟）
-            const now = Date.now();
-            if (!this.autoSyncConfig.lastSyncTime || 
-                (now - this.autoSyncConfig.lastSyncTime) > 300000) {
-                console.log('执行定期全量同步');
-                await this.checkAndSync();
-            }
-        }, this.autoSyncConfig.interval);
-        
-        // 立即执行一次同步检查
-        this.checkAndSync();
-    },
-    
-    // 设置数据变化检测
-    setupChangeDetection() {
-        console.log('设置数据变化检测...');
-        
-        // 监听localStorage变化
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'diaries') {
-                this.autoSyncConfig.changeDetected = true;
-                console.log('检测到数据变化（通过storage事件）');
-                // 立即触发同步
-                this.sync();
-            }
-        });
-        
-        // 监听IndexedDB变化
-        const db = indexedDB.open('DiaryDB', 1);
-        db.onsuccess = (event) => {
-            const database = event.target.result;
-            database.addEventListener('versionchange', () => {
-                this.autoSyncConfig.changeDetected = true;
-                console.log('检测到数据变化（通过IndexedDB事件）');
-                // 立即触发同步
-                this.sync();
+    /**
+     * 从云端下载数据
+     */
+    async downloadFromCloud() {
+        try {
+            // 获取文件列表
+            const response = await this.dropboxClient.filesListFolder({
+                path: this.config.cloudFolder
             });
-        };
-        
-        // 重写数据保存方法以添加变化检测
-        const originalSaveLocalData = this.saveLocalData;
-        this.saveLocalData = async (data) => {
-            await originalSaveLocalData.call(this, data);
-            this.autoSyncConfig.changeDetected = true;
-            console.log('检测到数据变化（通过保存操作）');
-            // 立即触发同步
-            this.sync();
-        };
-        
-        console.log('数据变化检测设置完成');
-    },
-    
-    // 设置网络状态监听
-    setupNetworkListener() {
-        window.addEventListener('online', () => {
-            console.log('网络已连接，检查是否需要同步');
-            if (this.autoSyncConfig.changeDetected) {
-                this.sync();
-            }
-        });
-        
-        window.addEventListener('offline', () => {
-            console.log('网络已断开，暂停自动同步');
-        });
-    },
-    
-    // 设置页面可见性监听
-    setupVisibilityListener() {
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                console.log('页面变为可见，检查是否需要同步');
-                if (this.autoSyncConfig.changeDetected) {
-                    this.sync();
-                }
-            }
-        });
-    },
-    
-    // 检查是否需要启用恢复模式
-    checkRecoveryMode() {
-        // 检查是否有访问令牌但没有本地数据
-        const hasToken = !!localStorage.getItem('dropbox_access_token');
-        const diaries = localStorage.getItem('diaries');
-        const emptyData = !diaries || diaries === '[]' || diaries === '';
-        
-        if (hasToken && emptyData) {
-            console.log('检测到有访问令牌但没有本地数据，启用恢复模式');
-            this.recoveryMode = true;
-            this.shouldForceRefresh = true;
             
-            // 立即尝试执行紧急恢复同步
-            setTimeout(() => this.emergencySync(), 2000);
+            // 如果没有文件，返回空数组
+            if (response.result.entries.length === 0) {
+                return [];
+            }
+            
+            // 找到最新的日记数据文件
+            const diaryFiles = response.result.entries
+                .filter(entry => entry['.tag'] === 'file' && entry.name.startsWith('diary_'))
+                .sort((a, b) => new Date(b.server_modified) - new Date(a.server_modified));
+            
+            if (diaryFiles.length === 0) {
+                return [];
+            }
+            
+            // 下载最新的文件
+            const latestFile = diaryFiles[0];
+            const fileData = await this.dropboxClient.filesDownload({
+                path: latestFile.path_lower
+            });
+            
+            // 读取文件内容
+            const reader = new FileReader();
+            const dataPromise = new Promise(resolve => {
+                reader.onload = () => resolve(reader.result);
+                reader.readAsText(fileData.result.fileBlob);
+            });
+            
+            const dataStr = await dataPromise;
+            const diaryData = JSON.parse(dataStr);
+            
+            return diaryData;
+        } catch (error) {
+            console.error('从云端下载数据失败:', error);
+            throw error;
         }
     },
-    
-    // 紧急恢复同步
-    async emergencySync() {
-        console.log('执行紧急恢复同步...');
-        this.showSyncProgress('正在执行紧急数据恢复...', false);
+
+    /**
+     * 保存数据到本地存储
+     */
+    async saveLocalData(data) {
+        try {
+            // 同时保存到两个存储位置，确保跨设备兼容性
+            localStorage.setItem('diaryEntries', JSON.stringify(data));
+            localStorage.setItem('diaries', JSON.stringify(data));
+            console.log('数据已同时保存到diaryEntries和diaries');
+            return true;
+        } catch (error) {
+            console.error('保存本地数据失败:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * 强制刷新页面数据
+     */
+    triggerPageRefresh() {
+        // 如果有刷新日记列表的方法就调用
+        if (typeof DiaryApp !== 'undefined' && typeof DiaryApp.loadEntries === 'function') {
+            DiaryApp.loadEntries();
+        } else if (typeof Diary !== 'undefined' && typeof Diary.loadDiaries === 'function') {
+            Diary.loadDiaries();
+        } else {
+            // 如果都没有找到，尝试重载页面
+            window.location.reload();
+        }
+    },
+
+    /**
+     * 超级强制同步 - 强制从云端获取数据并覆盖本地
+     */
+    async superForceSync() {
+        console.log('执行超级强制同步');
+        this.showSyncProgress('正在强制从云端同步...', false);
         
         try {
-            // 直接尝试从云端获取数据
+            // 验证令牌状态
+            const tokenStatus = await this.verifyTokenStatus();
+            if (!tokenStatus.valid) {
+                console.log('令牌无效，需要重新授权');
+                this.showSyncNotification('访问令牌无效，需要重新授权', 'error');
+                this.showSyncProgress('同步失败: 需要授权', true, true);
+                setTimeout(() => this.authorizeDropbox(), 1000);
+                return;
+            }
+            
+            // 从云端下载数据
+            console.log('尝试从云端下载最新数据');
             const cloudData = await this.downloadFromCloud();
             
             if (Array.isArray(cloudData) && cloudData.length > 0) {
-                console.log(`从云端恢复了${cloudData.length}条日记`);
+                console.log(`成功获取${cloudData.length}条云端数据`);
                 
-                // 直接保存到本地
-                localStorage.setItem('diaries', JSON.stringify(cloudData));
+                // 保存到本地，完全覆盖本地数据
+                await this.saveLocalData(cloudData);
+                
+                // 通知并刷新
+                this.showSyncNotification(`已强制同步${cloudData.length}条日记`, 'success');
+                this.showSyncProgress('强制同步成功', true);
+                
+                // 刷新页面数据
+                this.triggerPageRefresh();
+            } else {
+                console.log('云端没有找到有效数据');
+                this.showSyncNotification('云端没有找到有效数据', 'error');
+                this.showSyncProgress('同步失败: 云端无数据', true, true);
+            }
+        } catch (error) {
+            console.error('超级强制同步失败:', error);
+            this.showSyncNotification('强制同步失败: ' + error.message, 'error');
+            this.showSyncProgress('同步失败', true, true);
+        }
+    },
+
+    /**
+     * 紧急强制同步 - 与超级强制相似但有更多提示
+     */
+    async emergencyForceSync() {
+        console.log('执行紧急强制同步');
+        this.showSyncProgress('正在强制从云端同步...', false);
+        
+        try {
+            // 检查令牌状态
+            const tokenStatus = await this.verifyTokenStatus();
+            if (!tokenStatus.valid) {
+                console.log('令牌无效，需要重新授权');
+                this.showSyncNotification('需要重新授权，请点击授权按钮', 'error');
+                this.showSyncProgress('同步失败: 需要授权', true, true);
+                setTimeout(() => this.authorizeDropbox(), 1000);
+                return;
+            }
+            
+            // 尝试从云端下载
+            console.log('尝试从云端下载数据...');
+            const cloudData = await this.downloadFromCloud();
+            
+            if (Array.isArray(cloudData) && cloudData.length > 0) {
+                console.log(`成功获取${cloudData.length}条云端数据`);
+                
+                // 直接将云端数据保存到本地，覆盖本地数据
                 await this.saveLocalData(cloudData);
                 
                 // 强制刷新页面
-                this.shouldForceRefresh = true;
                 this.triggerPageRefresh();
                 
-                this.showSyncNotification(`恢复成功！已恢复${cloudData.length}条日记`, 'success');
+                // 显示成功通知
+                this.showSyncNotification(`同步成功，已加载${cloudData.length}条日记`, 'success');
+                this.showSyncProgress('同步成功', true);
             } else {
-                console.log('云端恢复失败，没有获取到有效数据');
-                this.showSyncNotification('恢复失败，云端没有数据', 'error');
+                console.log('云端没有数据或数据格式不正确');
+                this.showSyncNotification('云端没有有效数据', 'error');
+                this.showSyncProgress('同步失败: 云端无数据', true, true);
             }
         } catch (error) {
-            console.error('紧急恢复失败:', error);
-            this.showSyncNotification('数据恢复失败，请手动点击同步按钮', 'error');
-        } finally {
-            this.showSyncProgress('恢复操作完成', true);
+            console.error('紧急同步失败:', error);
+            this.showSyncNotification('同步失败: ' + error.message, 'error');
+            this.showSyncProgress('同步失败', true, true);
         }
     }
 };
 
-// 在页面加载时初始化
-// 自动同步与定时同步增强 by Apple风格AI
-
-document.addEventListener('DOMContentLoaded', async () => {
-    try {
-        console.log('开始初始化云同步模块...');
-        
-        // 检查是否已设置Dropbox App Key
-        if (!CloudSync.loadAppKey()) {
-            console.log('未设置Dropbox App Key');
-            // 不自动显示设置提示，等待用户点击云同步按钮时再显示
-        }
-        
-        // 检查URL是否包含访问令牌 - 优先处理授权回调
-        if (window.location.hash.includes('access_token=')) {
-            console.log('检测到页面加载时有授权回调');
-            // 立即尝试处理重定向
-            await CloudSync.handleRedirect();
-        }
-        
-        // 初始化云同步模块
-        CloudSync.init();
-        
-        // 提供明确的用户反馈
-        if (CloudSync.initialized) {
-            console.log('云同步模块初始化成功');
-        }
-        
-        // 检查本地存储的令牌是否接近过期
-        const tokenExpires = localStorage.getItem('dropbox_token_expires');
-        if (tokenExpires) {
-            const expireTime = parseInt(tokenExpires);
-            const now = Date.now();
-            const timeLeftHours = (expireTime - now) / (1000 * 60 * 60);
-            // 如果令牌剩余时间不足24小时，提醒用户
-            if (timeLeftHours > 0 && timeLeftHours < 24) {
-                console.warn(`Dropbox授权将在约${Math.floor(timeLeftHours)}小时后过期`);
-            }
-        }
-    } catch (error) {
-        console.error('初始化云同步模块时出错:', error);
-    }
+// 页面加载后初始化云同步模块
+document.addEventListener('DOMContentLoaded', () => {
+    CloudSync.init();
 }); 

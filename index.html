@@ -2,16 +2,20 @@
 <html lang="zh" data-theme="light" data-theme-color="pink">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title id="page-title">博客式日记本</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/themes.css">
+    <link rel="stylesheet" href="css/cloud-sync.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- 更新Dropbox SDK到最新版本 -->
     <script src="https://unpkg.com/dropbox@10.34.0/dist/Dropbox-sdk.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <!-- 引入字体图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
 </head>
 <body>
     <div class="container">
@@ -43,6 +47,7 @@
                 <button class="export-btn">导出</button>
                 <button class="recover-btn" onclick="CloudSync.recoverFromBackup()">恢复数据</button>
                 <button class="emergency-sync-btn" onclick="CloudSync.emergencyForceSync()">紧急同步</button>
+                <button class="super-sync-btn" onclick="CloudSync.superForceSync()">超级同步</button>
                 <!-- 云同步按钮将在这里自动添加 -->
             </div>
             <div class="theme-switch">
@@ -91,6 +96,31 @@
             <div class="diary-list">
                 <!-- 日记列表内容 -->
             </div>
+            <div id="sync-controls" class="hidden">
+                <div class="sync-options">
+                    <button id="sync-btn" class="btn btn-primary" title="与云端同步数据">
+                        <i class="fa fa-cloud"></i> 云同步
+                    </button>
+                    
+                    <button id="emergency-sync-btn" class="btn btn-warning" title="紧急数据同步，适用于同步出错时">
+                        <i class="fa fa-ambulance"></i> 紧急同步
+                    </button>
+                    
+                    <button id="super-force-sync-btn" class="btn btn-danger" title="超级强制同步，适用于常规同步失败时">
+                        <i class="fa fa-bolt"></i> 超级同步
+                    </button>
+                    
+                    <button id="backup-recover-btn" class="btn btn-info" title="从云端备份恢复数据">
+                        <i class="fa fa-history"></i> 恢复备份
+                    </button>
+                </div>
+                <div id="sync-progress" class="hidden">
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <div id="sync-status">准备同步...</div>
+                </div>
+            </div>
         </main>
 
         <!-- 写日记的弹窗 -->
@@ -131,10 +161,44 @@
         // 确保在DOM完全加载后再初始化
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOM加载完成，开始初始化...');
+            
+            // 紧急处理 - 检查URL参数中是否有token
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('token')) {
+                const token = urlParams.get('token');
+                console.log('从URL检测到token参数');
+                if (token && token.length > 10) {
+                    localStorage.setItem('dropbox_access_token', token);
+                    console.log('已从URL参数保存token到localStorage');
+                    // 清除URL参数
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    // 显示通知
+                    setTimeout(() => {
+                        alert('已从URL参数更新访问令牌，即将执行同步');
+                        if (typeof CloudSync !== 'undefined') {
+                            CloudSync.superForceSync();
+                        }
+                    }, 1000);
+                }
+            }
+            
+            // 检查其他特殊参数
+            const superSync = urlParams.has('super_sync');
+            const forceSync = urlParams.has('force_sync');
+            
             // 先初始化设置模块
             Settings.init();
             // 再初始化日记功能
             Diary.init();
+            
+            // 根据参数执行特殊操作
+            if (superSync && typeof CloudSync !== 'undefined') {
+                console.log('检测到super_sync参数，将执行超级同步');
+                setTimeout(() => CloudSync.superForceSync(), 1500);
+            } else if (forceSync && typeof CloudSync !== 'undefined') {
+                console.log('检测到force_sync参数，将执行紧急同步');
+                setTimeout(() => CloudSync.emergencyForceSync(), 1500);
+            }
             
             // 添加紧急同步方法
             if (typeof CloudSync !== 'undefined') {
@@ -199,16 +263,59 @@
                 });
             }
             
-            // 检查URL参数
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.has('force_sync') && urlParams.get('force_sync') === 'true') {
-                console.log('检测到force_sync参数，执行强制同步');
-                if (typeof CloudSync !== 'undefined' && typeof CloudSync.emergencyForceSync === 'function') {
-                    setTimeout(() => CloudSync.emergencyForceSync(), 1500);
-                }
-            }
-            
             console.log('初始化完成');
+        });
+    </script>
+    
+    <!-- 调试工具 -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 创建调试按钮
+            const debugButton = document.createElement('button');
+            debugButton.textContent = "显示同步状态";
+            debugButton.style.position = "fixed";
+            debugButton.style.bottom = "10px";
+            debugButton.style.left = "10px";
+            debugButton.style.padding = "8px 12px";
+            debugButton.style.background = "#42a5f5";
+            debugButton.style.color = "white";
+            debugButton.style.border = "none";
+            debugButton.style.borderRadius = "4px";
+            debugButton.style.cursor = "pointer";
+            debugButton.style.zIndex = "9999";
+            
+            debugButton.addEventListener('click', function() {
+                // 收集信息
+                const info = {
+                    tokens: {
+                        dropboxAccessToken: localStorage.getItem('dropboxAccessToken') ? '存在' : '不存在',
+                        dropbox_access_token: localStorage.getItem('dropbox_access_token') ? '存在' : '不存在'
+                    },
+                    data: {
+                        diaryEntries: localStorage.getItem('diaryEntries') ? 
+                            JSON.parse(localStorage.getItem('diaryEntries')).length + '条' : '不存在',
+                        diaries: localStorage.getItem('diaries') ? 
+                            JSON.parse(localStorage.getItem('diaries')).length + '条' : '不存在'
+                    },
+                    cloudSyncModule: typeof CloudSync !== 'undefined' ? '已加载' : '未加载',
+                    url: window.location.href
+                };
+                
+                // 显示信息
+                alert(
+                    "云同步状态：\n\n" +
+                    "令牌：\n" +
+                    "- dropboxAccessToken: " + info.tokens.dropboxAccessToken + "\n" +
+                    "- dropbox_access_token: " + info.tokens.dropbox_access_token + "\n\n" +
+                    "数据：\n" +
+                    "- diaryEntries: " + info.data.diaryEntries + "\n" +
+                    "- diaries: " + info.data.diaries + "\n\n" +
+                    "云同步模块：" + info.cloudSyncModule + "\n" +
+                    "当前URL：" + info.url
+                );
+            });
+            
+            document.body.appendChild(debugButton);
         });
     </script>
 </body>

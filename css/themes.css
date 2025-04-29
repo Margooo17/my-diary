@@ -1,0 +1,118 @@
+/* 主题颜色样式 */
+
+/* 浅色主题 */
+[data-theme="light"] {
+    --background-color: #f8f9fa;
+    --text-color: #333;
+    --text-color-secondary: #666;
+    --text-color-light: #888;
+    --border-color: #e0e0e0;
+    --border-color-dark: #ccc;
+    --card-bg: #fff;
+    --hover-bg: #f5f5f5;
+}
+
+/* 深色主题 */
+[data-theme="dark"] {
+    --background-color: #1e1e1e;
+    --text-color: #e0e0e0;
+    --text-color-secondary: #aaa;
+    --text-color-light: #888;
+    --border-color: #444;
+    --border-color-dark: #555;
+    --card-bg: #2d2d2d;
+    --hover-bg: #3a3a3a;
+}
+
+/* 粉色主题 */
+[data-theme-color="pink"] {
+    --primary-color: #ec407a;
+    --primary-color-dark: #d81b60;
+    --primary-color-light: #f48fb1;
+    --primary-color-rgb: 236, 64, 122;
+}
+
+[data-theme="dark"][data-theme-color="pink"] {
+    --primary-color: #f48fb1;
+    --primary-color-dark: #ec407a;
+    --primary-color-light: #f8bbd0;
+    --primary-color-rgb: 244, 143, 177;
+}
+
+/* 蓝色主题 */
+[data-theme-color="blue"] {
+    --primary-color: #42a5f5;
+    --primary-color-dark: #1e88e5;
+    --primary-color-light: #90caf9;
+    --primary-color-rgb: 66, 165, 245;
+}
+
+[data-theme="dark"][data-theme-color="blue"] {
+    --primary-color: #90caf9;
+    --primary-color-dark: #42a5f5;
+    --primary-color-light: #bbdefb;
+    --primary-color-rgb: 144, 202, 249;
+}
+
+/* 绿色主题 */
+[data-theme-color="green"] {
+    --primary-color: #66bb6a;
+    --primary-color-dark: #43a047;
+    --primary-color-light: #a5d6a7;
+    --primary-color-rgb: 102, 187, 106;
+}
+
+[data-theme="dark"][data-theme-color="green"] {
+    --primary-color: #a5d6a7;
+    --primary-color-dark: #66bb6a;
+    --primary-color-light: #c8e6c9;
+    --primary-color-rgb: 165, 214, 167;
+}
+
+/* 紫色主题 */
+[data-theme-color="purple"] {
+    --primary-color: #ab47bc;
+    --primary-color-dark: #8e24aa;
+    --primary-color-light: #ce93d8;
+    --primary-color-rgb: 171, 71, 188;
+}
+
+[data-theme="dark"][data-theme-color="purple"] {
+    --primary-color: #ce93d8;
+    --primary-color-dark: #ab47bc;
+    --primary-color-light: #e1bee7;
+    --primary-color-rgb: 206, 147, 216;
+}
+
+/* 橙色主题 */
+[data-theme-color="orange"] {
+    --primary-color: #ff9800;
+    --primary-color-dark: #f57c00;
+    --primary-color-light: #ffcc80;
+    --primary-color-rgb: 255, 152, 0;
+}
+
+[data-theme="dark"][data-theme-color="orange"] {
+    --primary-color: #ffcc80;
+    --primary-color-dark: #ff9800;
+    --primary-color-light: #ffe0b2;
+    --primary-color-rgb: 255, 204, 128;
+}
+
+/* 特殊主题样式 */
+[data-theme="dark"] .dark-icon {
+    display: none;
+}
+
+[data-theme="light"] .light-icon {
+    display: none;
+}
+
+/* 主题切换动画 */
+html {
+    transition: background-color 0.3s ease;
+}
+
+body, input, textarea, button {
+    transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+} 

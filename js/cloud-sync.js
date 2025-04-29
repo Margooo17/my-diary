@@ -1248,6 +1248,16 @@ const CloudSync = {
         const savedConfig = localStorage.getItem('autoSyncConfig');
         if (savedConfig) {
             this.autoSyncConfig = { ...this.autoSyncConfig, ...JSON.parse(savedConfig) };
+            console.log('已加载自动同步配置:', this.autoSyncConfig);
+        } else {
+            console.log('使用默认自动同步配置:', this.autoSyncConfig);
+        }
+        
+        // 检查Dropbox授权状态
+        const accessToken = localStorage.getItem('dropbox_access_token');
+        if (!accessToken) {
+            console.warn('未找到Dropbox访问令牌，自动同步可能无法工作');
+            return;
         }
         
         // 启动自动同步
@@ -1261,19 +1271,69 @@ const CloudSync = {
         
         // 监听页面可见性
         this.setupVisibilityListener();
+        
+        // 立即执行一次同步检查
+        this.checkAndSync();
+    },
+    
+    // 检查并执行同步
+    async checkAndSync() {
+        console.log('执行同步检查...');
+        
+        if (this.autoSyncConfig.syncInProgress) {
+            console.log('同步正在进行中，跳过本次检查');
+            return;
+        }
+        
+        if (!navigator.onLine) {
+            console.log('网络离线，跳过本次检查');
+            return;
+        }
+        
+        // 获取本地数据
+        const localData = await this.getLocalData();
+        console.log('当前本地数据条数:', localData.length);
+        
+        try {
+            // 尝试从云端获取数据
+            const cloudData = await this.downloadFromCloud();
+            console.log('云端数据条数:', cloudData.length);
+            
+            // 比较数据
+            if (JSON.stringify(localData) !== JSON.stringify(cloudData)) {
+                console.log('检测到数据不一致，开始同步');
+                await this.sync();
+            } else {
+                console.log('数据已是最新，无需同步');
+            }
+        } catch (error) {
+            console.error('同步检查失败:', error);
+            if (error.message === '文件不存在') {
+                console.log('云端文件不存在，上传本地数据');
+                await this.uploadToCloud(localData);
+            }
+        }
     },
     
     // 启动自动同步
     startAutoSync() {
-        if (!this.autoSyncConfig.enabled) return;
+        if (!this.autoSyncConfig.enabled) {
+            console.log('自动同步已禁用');
+            return;
+        }
+        
+        console.log('启动自动同步，间隔:', this.autoSyncConfig.interval, 'ms');
         
         // 清除可能存在的旧定时器
         if (this.autoSyncTimer) {
             clearInterval(this.autoSyncTimer);
+            console.log('清除旧的同步定时器');
         }
         
         // 设置新的定时器
         this.autoSyncTimer = setInterval(async () => {
+            console.log('定时器触发，检查是否需要同步');
+            
             if (this.autoSyncConfig.syncInProgress) {
                 console.log('同步正在进行中，跳过本次自动同步');
                 return;
@@ -1301,9 +1361,12 @@ const CloudSync = {
             if (!this.autoSyncConfig.lastSyncTime || 
                 (now - this.autoSyncConfig.lastSyncTime) > 300000) {
                 console.log('执行定期全量同步');
-                await this.sync();
+                await this.checkAndSync();
             }
         }, this.autoSyncConfig.interval);
+        
+        // 立即执行一次同步检查
+        this.checkAndSync();
     },
     
     // 设置数据变化检测

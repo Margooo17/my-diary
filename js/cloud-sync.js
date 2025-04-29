@@ -1208,6 +1208,48 @@ const CloudSync = {
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         console.log('开始初始化云同步模块...');
+        
+        // 检查是否已设置Dropbox App Key
+        if (!CloudSync.loadAppKey()) {
+            console.log('未设置Dropbox App Key，显示设置提示');
+            // 显示设置提示
+            const setupHtml = `
+                <div class="sync-setup-prompt" style="
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #fff;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    z-index: 1000;
+                    max-width: 400px;
+                ">
+                    <h3 style="margin: 0 0 10px 0; color: #333;">设置云同步</h3>
+                    <p style="margin: 0 0 15px 0; color: #666;">
+                        要使用云同步功能，需要先设置Dropbox App Key。
+                        <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color: #0061fe;">点击这里</a> 创建应用并获取App Key。
+                    </p>
+                    <input type="text" id="dropboxAppKey" placeholder="输入你的Dropbox App Key" style="
+                        width: 100%;
+                        padding: 8px;
+                        margin-bottom: 10px;
+                        border: 1px solid #ddd;
+                        border-radius: 4px;
+                    ">
+                    <button onclick="CloudSync.saveAppKey(document.getElementById('dropboxAppKey').value)" style="
+                        background: #0061fe;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                    ">保存</button>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', setupHtml);
+        }
+        
         // 检查URL是否包含访问令牌 - 优先处理授权回调
         if (window.location.hash.includes('access_token=')) {
             console.log('检测到页面加载时有授权回调');

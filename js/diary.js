@@ -27,6 +27,13 @@ const Diary = {
                 console.error('无法找到保存按钮');
             }
         });
+        
+        // 添加云同步数据更新事件监听
+        document.addEventListener('diaryDataRefreshed', () => {
+            console.log('接收到数据刷新事件，重新渲染日记列表');
+            this.renderDiaries();
+            Tags.updateTagsList();
+        });
     },
 
     // 绑定事件
@@ -518,58 +525,58 @@ const Diary = {
         this.isSaving = true;
         
         try {
-            const content = document.querySelector('.diary-content').value.trim();
-            console.log('准备保存的内容:', content);
-            
-            if (!content) {
-                console.log('内容为空，不保存');
-                this.closeModal();
+        const content = document.querySelector('.diary-content').value.trim();
+        console.log('准备保存的内容:', content);
+        
+        if (!content) {
+            console.log('内容为空，不保存');
+            this.closeModal();
                 return;
             }
             
-            // 获取当前选中的标签
-            const tags = Array.from(document.querySelectorAll('.selected-tags .tag'))
-                .map(tag => tag.textContent.trim());
+        // 获取当前选中的标签
+        const tags = Array.from(document.querySelectorAll('.selected-tags .tag'))
+            .map(tag => tag.textContent.trim());
             console.log('标签:', tags);
             
-            // 创建新日记对象
-            const diary = {
-                id: this.currentDiaryId || Date.now().toString(),
-                content,
-                createdAt: this.currentDiaryId ? this.currentDiaryCreatedAt : new Date().toISOString(),
-                tags,
+        // 创建新日记对象
+        const diary = {
+            id: this.currentDiaryId || Date.now().toString(),
+            content,
+            createdAt: this.currentDiaryId ? this.currentDiaryCreatedAt : new Date().toISOString(),
+            tags,
                 comments: this.currentDiaryId ? (this.currentDiaryComments || []) : [],
                 lastModified: new Date().toISOString()
-            };
+        };
+        
+        console.log('保存的日记:', diary);
             
-            console.log('保存的日记:', diary);
-            
-            // 保存到存储
-            let diaries;
-            if (this.currentDiaryId) {
-                // 更新现有日记
-                diaries = Storage.getAllDiaries().map(d => 
-                    d.id === this.currentDiaryId ? diary : d
-                );
-            } else {
-                // 添加新日记
-                diaries = [diary, ...Storage.getAllDiaries()];
-            }
-            
+        // 保存到存储
+        let diaries;
+        if (this.currentDiaryId) {
+                    // 更新现有日记
+            diaries = Storage.getAllDiaries().map(d => 
+                d.id === this.currentDiaryId ? diary : d
+            );
+                } else {
+            // 添加新日记
+            diaries = [diary, ...Storage.getAllDiaries()];
+        }
+        
             // 保存到本地存储
-            Storage.saveAllDiaries(diaries);
-            
-            // 显示成就动画
-            this.showAchievementAnimation();
-            
-            // 清空输入并关闭模态框
-            this.closeModal();
-            
-            // 重新渲染日记列表
-            this.renderDiaries();
-            
+        Storage.saveAllDiaries(diaries);
+                    
+        // 显示成就动画
+                        this.showAchievementAnimation();
+        
+        // 清空输入并关闭模态框
+        this.closeModal();
+                
+        // 重新渲染日记列表
+                this.renderDiaries();
+        
             // 如果云同步模块存在且已授权，触发自动同步
-            if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
+        if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
                 try {
                     // 等待一小段时间确保本地数据已完全保存
                     await new Promise(resolve => setTimeout(resolve, 500));

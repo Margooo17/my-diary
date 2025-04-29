@@ -976,6 +976,11 @@ const CloudSync = {
                             addCounter++;
                             if (addCounter === data.length) {
                                 console.log(`成功保存了${addCounter}条日记到本地数据库`);
+                                
+                                // 确保也保存到localStorage
+                                console.log('同时保存数据到localStorage');
+                                localStorage.setItem('diaries', JSON.stringify(data));
+                                
                                 resolve();
                             }
                         };
@@ -989,6 +994,8 @@ const CloudSync = {
                     // 如果没有数据要添加
                     if (data.length === 0) {
                         console.log('没有数据需要写入本地数据库');
+                        // 确保清空localStorage
+                        localStorage.setItem('diaries', JSON.stringify([]));
                         resolve();
                     }
                 };
@@ -1080,9 +1087,17 @@ const CloudSync = {
     
     // 触发页面刷新
     triggerPageRefresh() {
+        console.log('触发页面刷新...');
+        
         // 触发自定义事件通知应用需要刷新数据
         const refreshEvent = new CustomEvent('diaryDataRefreshed');
         document.dispatchEvent(refreshEvent);
+        
+        // 直接调用Diary.renderDiaries()强制刷新
+        if (typeof Diary !== 'undefined' && typeof Diary.renderDiaries === 'function') {
+            console.log('调用Diary.renderDiaries()刷新页面');
+            Diary.renderDiaries();
+        }
         
         // 如果有回调函数可以调用
         if (typeof updateDiaryList === 'function') {

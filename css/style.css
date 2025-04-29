@@ -344,40 +344,33 @@ body {
 
 .data-actions {
     display: flex;
-    margin: 1rem 0;
-    justify-content: center;
-    gap: 1rem;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
 }
 
-.import-btn, .export-btn {
-    padding: 0.5rem 1rem;
-    background-color: var(--secondary-color);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
+.data-actions button {
+    width: 100%;
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 14px;
     transition: all 0.3s ease;
-    color: var(--text-color);
 }
 
-.import-btn:hover, .export-btn:hover {
-    background-color: var(--primary-color);
-    color: white;
+.data-actions .import-btn,
+.data-actions .export-btn,
+.data-actions .recover-btn {
+    background-color: #f0f0f0;
+    color: #333;
 }
 
-/* 夜间模式下导入导出按钮优化 */
-[data-theme="dark"] .import-btn, 
-[data-theme="dark"] .export-btn {
-    background-color: #464646;
-    border-color: #565656;
-    color: #E0E0E0;
-}
-
-[data-theme="dark"] .import-btn:hover, 
-[data-theme="dark"] .export-btn:hover {
-    background-color: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
+.data-actions .import-btn:hover,
+.data-actions .export-btn:hover,
+.data-actions .recover-btn:hover {
+    background-color: #e0e0e0;
+    transform: translateY(-1px);
 }
 
 /* 主要内容区样式 */
@@ -2011,4 +2004,37 @@ body {
 /* 确保标签内容和计数正确对齐 */
 .tag-content {
     flex: 1;
+}
+
+/* 云同步按钮样式 */
+.sync-btn {
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-top: 8px;
+    width: 100%;
+    justify-content: center;
+}
+
+.sync-btn:hover {
+    background-color: #3367d6;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.sync-btn .sync-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid white;
+    margin-left: 4px;
 } 

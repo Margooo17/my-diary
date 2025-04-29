@@ -5,6 +5,21 @@ alwaysApply: false
 ---
 # 日记本项目开发规则
 
+## AI助手自动同步规则
+
+作为AI助手，我必须：
+1. 在每次代码修改后，自动执行同步，无需等待用户提醒
+2. 同步步骤：
+   ```bash
+   ./auto-sync.sh  # 自动执行git add、commit和push操作
+   ```
+3. 同步后主动等待部署完成（1-2分钟）
+4. 提醒用户在 https://margooo17.github.io/my-diary/ 查看更新
+5. 如果用户没有看到更新，主动建议：
+   - 使用强制刷新（Ctrl+Shift+R 或 Cmd+Shift+R）
+   - 清除浏览器缓存
+   - 等待几分钟后再试
+
 ## 部署流程规则
 
 ### 测试环境

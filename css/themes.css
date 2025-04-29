@@ -24,19 +24,19 @@
     --hover-bg: #3a3a3a;
 }
 
-/* 粉色主题 */
+/* 粉色主题 - 符合Mac设计美感 */
 [data-theme-color="pink"] {
-    --primary-color: #e08396;
-    --primary-color-dark: #c1667a;
-    --primary-color-light: #eea9b8;
-    --primary-color-rgb: 224, 131, 150;
+    --primary-color: #ff6b8b;
+    --primary-color-dark: #e85e7c;
+    --primary-color-light: #ff96ad;
+    --primary-color-rgb: 255, 107, 139;
 }
 
 [data-theme="dark"][data-theme-color="pink"] {
-    --primary-color: #d496a7;
-    --primary-color-dark: #c1667a;
-    --primary-color-light: #eec4cf;
-    --primary-color-rgb: 212, 150, 167;
+    --primary-color: #ff8fab;
+    --primary-color-dark: #e85e7c;
+    --primary-color-light: #ffb1c5;
+    --primary-color-rgb: 255, 143, 171;
 }
 
 /* 蓝色主题 */

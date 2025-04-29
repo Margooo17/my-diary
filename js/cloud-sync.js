@@ -31,19 +31,19 @@ const CloudSync = {
      * 初始化Dropbox客户端
      */
     initDropboxClient() {
-                    this.dropboxClient = new Dropbox.Dropbox({
+        this.dropboxClient = new Dropbox.Dropbox({
             clientId: this.config.clientId
-                    });
-                    
+        });
+        
         // 检查是否已授权（同时支持两种可能的存储键）
         const accessToken = localStorage.getItem('dropboxAccessToken') || localStorage.getItem('dropbox_access_token');
-                    if (accessToken) {
-                        this.dropboxClient.setAccessToken(accessToken);
+        if (accessToken) {
+            this.dropboxClient.setAccessToken(accessToken);
             // 确保两个存储键都有相同的令牌值
             localStorage.setItem('dropboxAccessToken', accessToken);
             localStorage.setItem('dropbox_access_token', accessToken);
             this.showSyncStatus('已连接到Dropbox');
-                } else {
+        } else {
             this.showSyncStatus('未连接到云存储');
         }
     },
@@ -132,7 +132,7 @@ const CloudSync = {
                 } else if (diaries) {
                     diaryData = JSON.parse(diaries);
                     console.log('从 localStorage.diaries 获取数据，找到', diaryData.length, '条记录');
-            } else {
+                } else {
                     diaryData = [];
                     console.log('无法找到任何数据源');
                 }
@@ -344,7 +344,7 @@ const CloudSync = {
                 localStorage.setItem('diaries', JSON.stringify(diaryData));
                 console.log('数据同时保存到diaryEntries和diaries');
                 restored = true;
-                    } else {
+            } else {
                 // 也确保所有地方都有同样的数据
                 if (localStorage.getItem('diaryEntries') !== null) {
                     localStorage.setItem('diaries', localStorage.getItem('diaryEntries'));

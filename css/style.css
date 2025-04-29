@@ -342,27 +342,30 @@ body {
     background-color: #4A4A4A;
 }
 
+/* 数据操作按钮样式 */
 .data-actions {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 16px;
+    gap: 10px;
+    margin-top: 20px;
 }
 
 .data-actions button {
-    width: 100%;
-    padding: 8px 16px;
-    border-radius: 4px;
+    padding: 10px;
+    border-radius: 8px;
     border: none;
+    background-color: #f1f1f1;
+    color: #333;
     cursor: pointer;
-    font-size: 14px;
     transition: all 0.3s ease;
+    font-size: 0.9rem;
+    text-align: center;
 }
 
 .data-actions .import-btn,
 .data-actions .export-btn,
 .data-actions .recover-btn {
-    background-color: #f0f0f0;
+    background-color: #f1f1f1;
     color: #333;
 }
 
@@ -371,6 +374,62 @@ body {
 .data-actions .recover-btn:hover {
     background-color: #e0e0e0;
     transform: translateY(-1px);
+}
+
+/* 紧急同步和超级同步按钮 */
+.data-actions .emergency-sync-btn,
+.data-actions .super-sync-btn {
+    background-color: #f1f1f1;
+    color: #333;
+}
+
+.data-actions .emergency-sync-btn:hover,
+.data-actions .super-sync-btn:hover {
+    background-color: #e0e0e0;
+    transform: translateY(-1px);
+}
+
+/* 夜间模式数据操作按钮样式 */
+[data-theme="dark"] .data-actions button {
+    background-color: #3a3a3a;
+    color: #ffffff;
+    border: 1px solid #505050;
+}
+
+[data-theme="dark"] .data-actions .import-btn,
+[data-theme="dark"] .data-actions .export-btn,
+[data-theme="dark"] .data-actions .recover-btn {
+    background-color: #3a3a3a;
+    color: #ffffff;
+}
+
+[data-theme="dark"] .data-actions .import-btn:hover,
+[data-theme="dark"] .data-actions .export-btn:hover,
+[data-theme="dark"] .data-actions .recover-btn:hover {
+    background-color: #505050;
+}
+
+/* 夜间模式下紧急同步和超级同步按钮 */
+[data-theme="dark"] .data-actions .emergency-sync-btn {
+    background-color: #ff9800;
+    color: #000000;
+    font-weight: 500;
+    border: none;
+}
+
+[data-theme="dark"] .data-actions .super-sync-btn {
+    background-color: #f44336;
+    color: #ffffff;
+    font-weight: 500;
+    border: none;
+}
+
+[data-theme="dark"] .data-actions .emergency-sync-btn:hover {
+    background-color: #ffb74d;
+}
+
+[data-theme="dark"] .data-actions .super-sync-btn:hover {
+    background-color: #ff7043;
 }
 
 /* 主要内容区样式 */

@@ -134,7 +134,12 @@ const CloudSync = {
             this.addSyncButton();
             
             // 初始化自动同步
-            this.initAutoSync();
+            if (accessToken) {
+                console.log('检测到有效的访问令牌，启动自动同步');
+                this.initAutoSync();
+            } else {
+                console.log('未检测到访问令牌，自动同步功能未启动');
+            }
             
             return true;
         } catch (error) {
@@ -1251,6 +1256,8 @@ const CloudSync = {
             console.log('已加载自动同步配置:', this.autoSyncConfig);
         } else {
             console.log('使用默认自动同步配置:', this.autoSyncConfig);
+            // 保存默认配置
+            localStorage.setItem('autoSyncConfig', JSON.stringify(this.autoSyncConfig));
         }
         
         // 检查Dropbox授权状态
@@ -1274,6 +1281,8 @@ const CloudSync = {
         
         // 立即执行一次同步检查
         this.checkAndSync();
+        
+        console.log('自动同步初始化完成');
     },
     
     // 检查并执行同步
@@ -1371,11 +1380,15 @@ const CloudSync = {
     
     // 设置数据变化检测
     setupChangeDetection() {
+        console.log('设置数据变化检测...');
+        
         // 监听localStorage变化
         window.addEventListener('storage', (e) => {
             if (e.key === 'diaries') {
                 this.autoSyncConfig.changeDetected = true;
                 console.log('检测到数据变化（通过storage事件）');
+                // 立即触发同步
+                this.sync();
             }
         });
         
@@ -1386,6 +1399,8 @@ const CloudSync = {
             database.addEventListener('versionchange', () => {
                 this.autoSyncConfig.changeDetected = true;
                 console.log('检测到数据变化（通过IndexedDB事件）');
+                // 立即触发同步
+                this.sync();
             });
         };
         
@@ -1395,7 +1410,11 @@ const CloudSync = {
             await originalSaveLocalData.call(this, data);
             this.autoSyncConfig.changeDetected = true;
             console.log('检测到数据变化（通过保存操作）');
+            // 立即触发同步
+            this.sync();
         };
+        
+        console.log('数据变化检测设置完成');
     },
     
     // 设置网络状态监听

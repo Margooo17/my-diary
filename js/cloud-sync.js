@@ -69,82 +69,113 @@ const CloudSync = {
     
     // 初始化
     init() {
-        console.log('初始化云同步服务...');
-        try {
-            // 加载App Key
-            this.loadAppKey();
-            
-            // 检查是否加载了Dropbox SDK
-            if (typeof Dropbox === 'undefined') {
-                throw new Error('Dropbox SDK未加载');
-            }
-            
-            // 获取访问令牌
-            const accessToken = localStorage.getItem('dropbox_access_token');
-            
-            // 初始化Dropbox客户端
-            try {
-                // 尝试初始化不带授权的基本客户端
-                // 注意：v10.34.0版本使用不同的构造函数签名
-                if (typeof Dropbox.Dropbox === 'function') {
-                    // 新版本SDK (v10+)
-                    if (this.APP_KEY) {
-                    this.dropboxClient = new Dropbox.Dropbox({
-                        clientId: this.APP_KEY
-                    });
-                    } else {
-                        // 如果没有APP_KEY，仅初始化客户端但不设置clientId
-                        this.dropboxClient = new Dropbox.Dropbox({});
-                    }
-                    
-                    // 如果有访问令牌，设置它
-                    if (accessToken) {
-                        this.dropboxClient.setAccessToken(accessToken);
-                    }
-                } else {
-                    // 旧版本SDK
-                    if (this.APP_KEY) {
-                    this.dropboxClient = new Dropbox({
-                        clientId: this.APP_KEY
-                    });
-                    } else {
-                        // 如果没有APP_KEY，仅初始化客户端但不设置clientId
-                        this.dropboxClient = new Dropbox({});
-                    }
-                    
-                    // 如果有访问令牌，设置它
-                    if (accessToken) {
-                        this.dropboxClient.setAccessToken(accessToken);
-                    }
-                }
-                
-                console.log('Dropbox客户端初始化成功');
-            } catch (error) {
-                console.error('初始化Dropbox客户端失败:', error);
-                throw error;
-            }
-            
-            // 检查本地数据是否存在，如果不存在但有备份，尝试恢复
-            this.checkAndRecoverLocalData();
-            
-            // 处理可能的授权回调
-            this.handleRedirect();
-            
-            // 添加同步按钮，无论是否有访问令牌
-            this.addSyncButton();
-            
-            // 初始化自动同步
-            if (accessToken) {
-                console.log('检测到有效的访问令牌，启动自动同步');
-                this.initAutoSync();
-            } else {
-                console.log('未检测到访问令牌，自动同步功能未启动');
-            }
-            
-            return true;
-        } catch (error) {
-            console.error('初始化云同步服务失败:', error);
+        console.log('初始化云同步模块...');
+        
+        // 检查环境状态
+        const envCheck = this.checkEnvironment();
+        if (!envCheck.ready) {
+            console.error('云同步环境检查失败:', envCheck.issues.join(', '));
             return false;
+        }
+        
+        // 初始化客户端
+        this.initClient();
+        
+        // 初始化加密密钥
+        this.initEncryptionKey();
+        
+        // 添加同步按钮
+        this.addSyncButton();
+        
+        // 处理重定向
+        this.handleRedirect();
+        
+        // 检查和恢复本地数据
+        this.checkAndRecoverLocalData();
+        
+        // 初始化自动同步配置
+        this.initAutoSync();
+        
+        // 确保IndexedDB初始化正确
+        this.initIndexedDB();
+        
+        console.log('云同步模块初始化完成');
+        return true;
+    },
+    
+    // 初始化IndexedDB
+    initIndexedDB() {
+        console.log('确保IndexedDB初始化...');
+        
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open('DiaryDB', 1);
+            
+            request.onerror = event => {
+                console.error('初始化IndexedDB失败:', event);
+                reject(new Error('无法初始化IndexedDB'));
+            };
+            
+            request.onupgradeneeded = event => {
+                console.log('创建或升级IndexedDB数据库...');
+                const db = event.target.result;
+                
+                // 创建日记存储
+                if (!db.objectStoreNames.contains('diaries')) {
+                    console.log('创建diaries存储');
+                    db.createObjectStore('diaries', { keyPath: 'id' });
+                }
+            };
+            
+            request.onsuccess = async event => {
+                console.log('IndexedDB初始化成功');
+                const db = event.target.result;
+                
+                // 检查localStorage与IndexedDB是否同步
+                try {
+                    await this.syncLocalStorageToIndexedDB();
+                    resolve();
+                } catch (error) {
+                    console.error('同步localStorage数据到IndexedDB失败:', error);
+                    reject(error);
+                }
+            };
+        }).catch(error => {
+            console.error('初始化IndexedDB出错，但继续执行:', error);
+        });
+    },
+    
+    // 同步localStorage数据到IndexedDB
+    async syncLocalStorageToIndexedDB() {
+        console.log('开始将localStorage数据同步到IndexedDB...');
+        
+        // 先从localStorage获取数据
+        const localStorageData = localStorage.getItem('diaries');
+        if (!localStorageData) {
+            console.log('localStorage没有日记数据，跳过同步');
+            return;
+        }
+        
+        const diaries = JSON.parse(localStorageData);
+        console.log(`从localStorage获取了${diaries.length}条日记`);
+        
+        // 从IndexedDB获取数据
+        try {
+            const indexedDBDiaries = await this.getLocalData();
+            console.log(`从IndexedDB获取了${indexedDBDiaries.length}条日记`);
+            
+            // 比较数据是否一致
+            if (JSON.stringify(diaries) === JSON.stringify(indexedDBDiaries)) {
+                console.log('localStorage和IndexedDB数据一致，无需同步');
+                return;
+            }
+            
+            // 数据不一致，将localStorage数据写入IndexedDB
+            console.log('数据不一致，更新IndexedDB...');
+            await this.saveLocalData(diaries);
+            console.log('同步完成');
+        } catch (error) {
+            console.error('检查IndexedDB数据失败，直接写入:', error);
+            await this.saveLocalData(diaries);
         }
     },
     
@@ -886,124 +917,280 @@ const CloudSync = {
     
     // 原有的同步逻辑
     async _performSync() {
-        // 获取本地数据
-        const localData = await this.getLocalData();
+        console.log('执行同步操作...');
         
         try {
-            // 从云端下载数据
-            const cloudData = await this.downloadFromCloud();
+            // 获取本地数据
+            const localData = await this.getLocalData();
+            console.log(`获取到本地数据: ${localData.length}条日记`);
             
-            // 合并数据
-            const mergedData = this.mergeData(localData, cloudData);
-            
-            // 保存到本地
-            localStorage.setItem('diaries', JSON.stringify(mergedData));
-            await this.saveLocalData(mergedData);
-            
-            // 上传到云端
-            await this.uploadToCloud(mergedData);
-            
-            // 刷新页面显示
-            this.triggerPageRefresh();
-        } catch (error) {
-            if (error.message === '文件不存在') {
-                // 如果是首次同步，直接上传本地数据
-                await this.uploadToCloud(localData);
-            } else {
-                throw error;
+            try {
+                // 从云端下载数据
+                console.log('尝试从云端下载数据...');
+                const cloudData = await this.downloadFromCloud();
+                console.log(`获取到云端数据: ${cloudData.length}条日记`);
+                
+                // 合并数据
+                console.log('开始合并本地和云端数据...');
+                const mergedData = this.mergeData(localData, cloudData);
+                console.log(`合并后数据: ${mergedData.length}条日记`);
+                
+                // 保存到IndexedDB和localStorage
+                console.log('保存合并后的数据到本地...');
+                await this.saveLocalData(mergedData);
+                
+                // 确保localStorage中的数据是最新的
+                localStorage.setItem('diaries', JSON.stringify(mergedData));
+                
+                // 上传到云端
+                console.log('上传合并后的数据到云端...');
+                await this.uploadToCloud(mergedData);
+                
+                // 强制重新渲染页面
+                console.log('同步完成，刷新页面...');
+                this.triggerPageRefresh();
+                
+                return true;
+            } catch (error) {
+                if (error.message === '文件不存在') {
+                    console.log('云端文件不存在，首次同步，直接上传本地数据');
+                    await this.uploadToCloud(localData);
+                    return true;
+                } else {
+                    console.error('同步出错:', error);
+                    throw error;
+                }
             }
+        } catch (error) {
+            console.error('同步失败:', error);
+            throw error;
         }
     },
     
     // 从本地数据库获取数据
     async getLocalData() {
+        console.log('从IndexedDB获取数据...');
+        
         return new Promise((resolve, reject) => {
             const request = indexedDB.open('DiaryDB', 1);
             
             request.onerror = event => {
                 console.error('打开数据库失败:', event);
+                
+                // 如果IndexedDB失败，尝试从localStorage获取
+                try {
+                    const localData = localStorage.getItem('diaries');
+                    if (localData) {
+                        console.log('IndexedDB失败，使用localStorage数据');
+                        resolve(JSON.parse(localData));
+                        return;
+                    }
+                } catch (e) {
+                    console.error('获取localStorage数据也失败:', e);
+                }
+                
                 reject(new Error('无法访问本地数据库'));
             };
             
-            request.onsuccess = event => {
+            request.onupgradeneeded = event => {
+                console.log('数据库需要升级，创建diaries存储');
                 const db = event.target.result;
-                const transaction = db.transaction(['diaries'], 'readonly');
-                const store = transaction.objectStore('diaries');
-                const getAllRequest = store.getAll();
-                
-                getAllRequest.onsuccess = () => {
-                    const diaries = getAllRequest.result;
-                    console.log(`从本地数据库获取了${diaries.length}条日记`);
-                    resolve(diaries);
-                };
-                
-                getAllRequest.onerror = event => {
-                    console.error('获取日记失败:', event);
-                    reject(new Error('无法从本地数据库获取数据'));
-                };
+                if (!db.objectStoreNames.contains('diaries')) {
+                    db.createObjectStore('diaries', { keyPath: 'id' });
+                }
+            };
+            
+            request.onsuccess = event => {
+                try {
+                    const db = event.target.result;
+                    const transaction = db.transaction(['diaries'], 'readonly');
+                    const store = transaction.objectStore('diaries');
+                    const getAllRequest = store.getAll();
+                    
+                    getAllRequest.onsuccess = () => {
+                        const diaries = getAllRequest.result;
+                        console.log(`从IndexedDB获取了${diaries.length}条日记`);
+                        
+                        // 检查本地存储是否与IndexedDB一致
+                        try {
+                            const localData = localStorage.getItem('diaries');
+                            if (localData) {
+                                const localDiaries = JSON.parse(localData);
+                                if (diaries.length === 0 && localDiaries.length > 0) {
+                                    console.log('IndexedDB为空但localStorage有数据，使用localStorage数据');
+                                    resolve(localDiaries);
+                                    return;
+                                }
+                            }
+                        } catch (e) {
+                            console.error('检查localStorage失败:', e);
+                        }
+                        
+                        resolve(diaries);
+                    };
+                    
+                    getAllRequest.onerror = event => {
+                        console.error('获取日记失败:', event);
+                        
+                        // 如果获取失败，尝试从localStorage获取
+                        try {
+                            const localData = localStorage.getItem('diaries');
+                            if (localData) {
+                                console.log('IndexedDB查询失败，使用localStorage数据');
+                                resolve(JSON.parse(localData));
+                                return;
+                            }
+                        } catch (e) {
+                            console.error('获取localStorage数据也失败:', e);
+                        }
+                        
+                        reject(new Error('无法从本地数据库获取数据'));
+                    };
+                } catch (e) {
+                    console.error('处理IndexedDB请求时出错:', e);
+                    
+                    // 如果处理出错，尝试从localStorage获取
+                    try {
+                        const localData = localStorage.getItem('diaries');
+                        if (localData) {
+                            console.log('IndexedDB处理出错，使用localStorage数据');
+                            resolve(JSON.parse(localData));
+                            return;
+                        }
+                    } catch (e2) {
+                        console.error('获取localStorage数据也失败:', e2);
+                    }
+                    
+                    reject(new Error('处理IndexedDB请求时出错'));
+                }
             };
         });
     },
     
     // 将数据保存到本地数据库
     async saveLocalData(data) {
+        console.log(`开始保存${data.length}条日记到本地数据库...`);
+        
         return new Promise((resolve, reject) => {
+            // 首先同步到localStorage
+            try {
+                console.log('保存到localStorage...');
+                localStorage.setItem('diaries', JSON.stringify(data));
+            } catch (e) {
+                console.error('保存到localStorage失败:', e);
+            }
+            
+            // 然后同步到IndexedDB
             const request = indexedDB.open('DiaryDB', 1);
             
             request.onerror = event => {
                 console.error('打开数据库失败:', event);
-                reject(new Error('无法访问本地数据库'));
+                // 即使IndexedDB失败，也算部分成功，因为已经保存到localStorage
+                resolve();
+            };
+            
+            request.onupgradeneeded = event => {
+                console.log('数据库需要升级，创建diaries存储');
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('diaries')) {
+                    db.createObjectStore('diaries', { keyPath: 'id' });
+                }
             };
             
             request.onsuccess = event => {
                 const db = event.target.result;
-                const transaction = db.transaction(['diaries'], 'readwrite');
-                const store = transaction.objectStore('diaries');
-                
-                // 清空现有数据
-                const clearRequest = store.clear();
-                
-                clearRequest.onsuccess = () => {
-                    console.log('本地数据库已清空，准备写入新数据');
+                try {
+                    const transaction = db.transaction(['diaries'], 'readwrite');
+                    const store = transaction.objectStore('diaries');
                     
-                    // 添加所有日记
-                    let addCounter = 0;
+                    // 清空现有数据
+                    const clearRequest = store.clear();
                     
-                    for (const diary of data) {
-                        const addRequest = store.add(diary);
+                    clearRequest.onsuccess = () => {
+                        console.log('本地数据库已清空，准备写入新数据');
                         
-                        addRequest.onsuccess = () => {
-                            addCounter++;
-                            if (addCounter === data.length) {
-                                console.log(`成功保存了${addCounter}条日记到本地数据库`);
+                        // 添加所有日记
+                        let addCounter = 0;
+                        let errorCounter = 0;
+                        
+                        if (data.length === 0) {
+                            console.log('没有数据需要写入本地数据库');
+                            resolve();
+                            return;
+                        }
+                        
+                        for (const diary of data) {
+                            try {
+                                const addRequest = store.add(diary);
                                 
-                                // 确保也保存到localStorage
-                                console.log('同时保存数据到localStorage');
-                                localStorage.setItem('diaries', JSON.stringify(data));
+                                addRequest.onsuccess = () => {
+                                    addCounter++;
+                                    if (addCounter + errorCounter === data.length) {
+                                        console.log(`成功保存了${addCounter}条日记到本地数据库 (失败:${errorCounter})`);
+                                        resolve();
+                                    }
+                                };
                                 
-                                resolve();
+                                addRequest.onerror = event => {
+                                    console.error('保存单条日记失败:', event);
+                                    errorCounter++;
+                                    if (addCounter + errorCounter === data.length) {
+                                        console.log(`成功保存了${addCounter}条日记到本地数据库 (失败:${errorCounter})`);
+                                        resolve();
+                                    }
+                                };
+                            } catch (e) {
+                                console.error('添加日记时出错:', e);
+                                errorCounter++;
+                                if (addCounter + errorCounter === data.length) {
+                                    console.log(`成功保存了${addCounter}条日记到本地数据库 (失败:${errorCounter})`);
+                                    resolve();
+                                }
                             }
-                        };
-                        
-                        addRequest.onerror = event => {
-                            console.error('保存日记失败:', event);
-                            reject(new Error('保存数据到本地数据库失败'));
-                        };
-                    }
+                        }
+                    };
                     
-                    // 如果没有数据要添加
-                    if (data.length === 0) {
-                        console.log('没有数据需要写入本地数据库');
-                        // 确保清空localStorage
-                        localStorage.setItem('diaries', JSON.stringify([]));
-                        resolve();
-                    }
-                };
-                
-                clearRequest.onerror = event => {
-                    console.error('清空数据库失败:', event);
-                    reject(new Error('清空本地数据库失败'));
-                };
+                    clearRequest.onerror = event => {
+                        console.error('清空数据库失败:', event);
+                        // 尝试直接添加
+                        console.log('尝试直接添加数据，不清空旧数据');
+                        
+                        let addCounter = 0;
+                        let errorCounter = 0;
+                        
+                        for (const diary of data) {
+                            try {
+                                const addRequest = store.put(diary); // 使用put替代add，覆盖已有记录
+                                
+                                addRequest.onsuccess = () => {
+                                    addCounter++;
+                                    if (addCounter + errorCounter === data.length) {
+                                        resolve();
+                                    }
+                                };
+                                
+                                addRequest.onerror = () => {
+                                    errorCounter++;
+                                    if (addCounter + errorCounter === data.length) {
+                                        resolve();
+                                    }
+                                };
+                            } catch (e) {
+                                errorCounter++;
+                                if (addCounter + errorCounter === data.length) {
+                                    resolve();
+                                }
+                            }
+                        }
+                        
+                        if (data.length === 0) {
+                            resolve();
+                        }
+                    };
+                } catch (e) {
+                    console.error('创建事务失败:', e);
+                    resolve(); // 即使失败也继续，因为已保存到localStorage
+                }
             };
         });
     },
@@ -1089,18 +1276,38 @@ const CloudSync = {
     triggerPageRefresh() {
         console.log('触发页面刷新...');
         
-        // 触发自定义事件通知应用需要刷新数据
-        const refreshEvent = new CustomEvent('diaryDataRefreshed');
-        document.dispatchEvent(refreshEvent);
-        
-        // 直接调用Diary.renderDiaries()强制刷新
-        if (typeof Diary !== 'undefined' && typeof Diary.renderDiaries === 'function') {
-            console.log('调用Diary.renderDiaries()刷新页面');
-            Diary.renderDiaries();
+        // 1. 直接从localStorage重新加载数据并渲染
+        try {
+            const diariesData = localStorage.getItem('diaries');
+            if (diariesData) {
+                console.log('从localStorage获取数据并直接刷新列表');
+                const diaries = JSON.parse(diariesData);
+                if (typeof Diary !== 'undefined' && typeof Diary.renderDiaries === 'function') {
+                    console.log(`正在渲染${diaries.length}条日记`);
+                    Diary.renderDiaries(diaries);
+                    if (typeof Tags !== 'undefined' && typeof Tags.updateTagsList === 'function') {
+                        Tags.updateTagsList();
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('直接刷新失败:', e);
         }
         
-        // 如果有回调函数可以调用
+        // 2. 触发自定义事件
+        try {
+            console.log('触发diaryDataRefreshed事件');
+            const refreshEvent = new CustomEvent('diaryDataRefreshed', {
+                detail: { time: new Date().toISOString() }
+            });
+            document.dispatchEvent(refreshEvent);
+        } catch (e) {
+            console.error('触发事件失败:', e);
+        }
+        
+        // 3. 调用回调函数（如果存在）
         if (typeof updateDiaryList === 'function') {
+            console.log('调用updateDiaryList回调函数');
             updateDiaryList();
         }
     },

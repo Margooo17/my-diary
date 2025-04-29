@@ -29,10 +29,22 @@ const Diary = {
         });
         
         // 添加云同步数据更新事件监听
-        document.addEventListener('diaryDataRefreshed', () => {
-            console.log('接收到数据刷新事件，重新渲染日记列表');
-            this.renderDiaries();
-            Tags.updateTagsList();
+        document.addEventListener('diaryDataRefreshed', (event) => {
+            console.log('接收到数据刷新事件，重新渲染日记列表', event);
+            
+            try {
+                // 确保从localStorage获取最新数据
+                const diariesFromStorage = Storage.getAllDiaries();
+                console.log(`从localStorage读取到${diariesFromStorage.length}条日记数据`);
+                
+                // 强制刷新UI
+                this.renderDiaries(diariesFromStorage);
+                Tags.updateTagsList();
+                
+                console.log('日记列表和标签刷新完成');
+            } catch (error) {
+                console.error('刷新日记列表失败:', error);
+            }
         });
     },
 
@@ -132,6 +144,7 @@ const Diary = {
 
     // 渲染日记列表
     renderDiaries(diaries = null) {
+        console.log(`开始渲染日记列表，${diaries ? '使用传入数据' : '使用Storage.getAllDiaries()'}`);
         const diaryList = document.querySelector('.diary-list');
         diaryList.innerHTML = '';
 
@@ -168,6 +181,7 @@ const Diary = {
 
         // 获取日记数据
         const allDiaries = diaries || Storage.getAllDiaries();
+        console.log(`渲染${allDiaries.length}条日记数据`);
         
         // 计算总页数
         const totalPages = Math.ceil(allDiaries.length / this.PAGE_SIZE);
@@ -176,6 +190,7 @@ const Diary = {
         const startIndex = (this.currentPage - 1) * this.PAGE_SIZE;
         const endIndex = startIndex + this.PAGE_SIZE;
         const currentDiaries = allDiaries.slice(startIndex, endIndex);
+        console.log(`当前页(${this.currentPage}/${totalPages})显示${currentDiaries.length}条日记`);
         
         // 渲染日记列表
         currentDiaries.forEach(diary => {

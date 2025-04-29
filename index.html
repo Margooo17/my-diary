@@ -45,9 +45,6 @@
             <div class="data-actions">
                 <button class="import-btn">导入</button>
                 <button class="export-btn">导出</button>
-                <button class="recover-btn" onclick="CloudSync.recoverFromBackup()">恢复数据</button>
-                <button class="emergency-sync-btn" onclick="CloudSync.emergencyForceSync()">紧急同步</button>
-                <button class="super-sync-btn" onclick="CloudSync.superForceSync()">超级同步</button>
                 <!-- 云同步按钮将在这里自动添加 -->
             </div>
             <div class="theme-switch">
@@ -100,18 +97,6 @@
                 <div class="sync-options">
                     <button id="sync-btn" class="btn btn-primary" title="与云端同步数据">
                         <i class="fa fa-cloud"></i> 云同步
-                    </button>
-                    
-                    <button id="emergency-sync-btn" class="btn btn-warning" title="紧急数据同步，适用于同步出错时">
-                        <i class="fa fa-ambulance"></i> 紧急同步
-                    </button>
-                    
-                    <button id="super-force-sync-btn" class="btn btn-danger" title="超级强制同步，适用于常规同步失败时">
-                        <i class="fa fa-bolt"></i> 超级同步
-                    </button>
-                    
-                    <button id="backup-recover-btn" class="btn btn-info" title="从云端备份恢复数据">
-                        <i class="fa fa-history"></i> 恢复备份
                     </button>
                 </div>
                 <div id="sync-progress" class="hidden">

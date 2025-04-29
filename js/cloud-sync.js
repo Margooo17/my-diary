@@ -612,6 +612,21 @@ const CloudSync = {
         // 更新状态消息
         this.showSyncStatus(message);
         
+        // 获取同步指示器
+        const syncIndicator = document.querySelector('.auto-sync-indicator');
+        
+        if (syncIndicator) {
+            if (!isComplete) {
+                // 显示指示器
+                syncIndicator.classList.add('active');
+            } else {
+                // 隐藏指示器（延迟）
+                setTimeout(() => {
+                    syncIndicator.classList.remove('active');
+                }, 1000);
+            }
+        }
+        
         // 将同步状态通知到页面
         const event = new CustomEvent('sync-status-changed', {
             detail: {

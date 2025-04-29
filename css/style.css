@@ -2008,33 +2008,89 @@ body {
 
 /* 云同步按钮样式 */
 .sync-btn {
-    background-color: #4285f4;
+    background-color: var(--primary-color);
     color: white;
     border: none;
     padding: 8px 16px;
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s ease;
     font-size: 14px;
     display: flex;
     align-items: center;
     gap: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px var(--shadow-color);
     margin-top: 8px;
     width: 100%;
     justify-content: center;
+    position: relative;
 }
 
 .sync-btn:hover {
-    background-color: #3367d6;
+    background-color: var(--button-hover);
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    box-shadow: 0 4px 8px var(--shadow-color);
 }
 
 .sync-btn .sync-status-dot {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    border: 2px solid white;
-    margin-left: 4px;
+    transition: all 0.3s ease;
+}
+
+.sync-btn .sync-icon {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+    transition: all 0.3s ease;
+}
+
+.sync-btn:hover .sync-icon {
+    transform: rotate(180deg);
+}
+
+/* 同步状态样式 */
+.sync-btn[data-status="synced"] {
+    background-color: var(--primary-color);
+}
+
+.sync-btn[data-status="synced"] .sync-status-dot {
+    background-color: #4CAF50;
+    box-shadow: 0 0 4px #4CAF50;
+}
+
+.sync-btn[data-status="not-synced"] {
+    background-color: var(--text-secondary);
+}
+
+.sync-btn[data-status="not-synced"] .sync-status-dot {
+    background-color: #ff4444;
+    box-shadow: 0 0 4px #ff4444;
+}
+
+.sync-btn[data-status="syncing"] {
+    background-color: var(--primary-color);
+}
+
+.sync-btn[data-status="syncing"] .sync-icon {
+    animation: rotating 2s linear infinite;
+}
+
+@keyframes rotating {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 夜间模式适配 */
+[data-theme="dark"] .sync-btn {
+    background-color: var(--primary-color);
+}
+
+[data-theme="dark"] .sync-btn:hover {
+    background-color: var(--button-hover);
 } 

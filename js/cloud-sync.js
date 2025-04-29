@@ -233,43 +233,23 @@ const CloudSync = {
         console.log('创建云同步按钮...');
         syncBtn = document.createElement('button');
         syncBtn.className = 'sync-btn';
-        syncBtn.style.cssText = `
-            background-color: #4285f4;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        `;
         
         // 创建图标
         const icon = document.createElement('span');
+        icon.className = 'sync-icon';
         icon.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+            <svg viewBox="0 0 24 24" width="16" height="16">
+                <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
             </svg>
         `;
         
         // 创建文本
         const text = document.createElement('span');
-        text.textContent = '云同步';
+        text.className = 'sync-text';
         
         // 添加状态指示器
         const statusDot = document.createElement('span');
         statusDot.className = 'sync-status-dot';
-        statusDot.style.cssText = `
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            border: 2px solid white;
-            margin-left: 4px;
-        `;
         
         // 组装按钮
         syncBtn.appendChild(icon);
@@ -278,19 +258,6 @@ const CloudSync = {
         
         // 更新按钮状态
         this.updateSyncButtonState(syncBtn);
-        
-        // 添加悬停效果
-        syncBtn.addEventListener('mouseover', () => {
-            syncBtn.style.backgroundColor = '#3367d6';
-            syncBtn.style.transform = 'translateY(-1px)';
-            syncBtn.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-        });
-        
-        syncBtn.addEventListener('mouseout', () => {
-            syncBtn.style.backgroundColor = '#4285f4';
-            syncBtn.style.transform = 'translateY(0)';
-            syncBtn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-        });
         
         // 添加点击事件
         syncBtn.addEventListener('click', () => {
@@ -305,17 +272,23 @@ const CloudSync = {
     
     // 更新同步按钮状态
     updateSyncButtonState(button) {
-        const statusDot = button.querySelector('.sync-status-dot');
         const accessToken = localStorage.getItem('dropbox_access_token');
+        const text = button.querySelector('.sync-text');
         
         if (!accessToken) {
+            button.setAttribute('data-status', 'not-synced');
             button.title = '点击设置云同步';
-            statusDot.style.backgroundColor = '#ff4444';
-            button.querySelector('span:last-child').textContent = '未同步';
+            text.textContent = '未同步';
         } else {
-            button.title = '已启用云同步';
-            statusDot.style.backgroundColor = '#4CAF50';
-            button.querySelector('span:last-child').textContent = '已同步';
+            if (this.autoSyncConfig.syncInProgress) {
+                button.setAttribute('data-status', 'syncing');
+                button.title = '正在同步...';
+                text.textContent = '同步中';
+            } else {
+                button.setAttribute('data-status', 'synced');
+                button.title = '已启用云同步';
+                text.textContent = '已同步';
+            }
         }
     },
     

@@ -148,6 +148,12 @@ const CloudSync = {
             console.log('检测到数据变化，等待自动同步...');
         });
         
+        // 监听日记保存事件
+        window.addEventListener('diary-saved', () => {
+            this.syncState.hasChanges = true;
+            console.log('检测到日记保存，等待自动同步...');
+        });
+        
         // 监听Storage变化
         window.addEventListener('storage', (event) => {
             if (event.key === 'diaries' || event.key === 'diaryEntries') {

@@ -59,6 +59,7 @@ const Storage = {
         
         // 触发数据变化事件
         window.dispatchEvent(new CustomEvent('diary-data-changed'));
+        window.dispatchEvent(new CustomEvent('diary-saved'));
         
         // 检查并显示存储警告
         const stats = this.getStorageStats();

@@ -26,77 +26,77 @@
 
 /* 粉色主题 - 符合Mac设计美感 */
 [data-theme-color="pink"] {
-    --primary-color: #ff6b8b;
-    --primary-color-dark: #e85e7c;
-    --primary-color-light: #ff96ad;
-    --primary-color-rgb: 255, 107, 139;
-}
-
-[data-theme="dark"][data-theme-color="pink"] {
     --primary-color: #ff8fab;
     --primary-color-dark: #e85e7c;
     --primary-color-light: #ffb1c5;
     --primary-color-rgb: 255, 143, 171;
 }
 
-/* 蓝色主题 */
-[data-theme-color="blue"] {
-    --primary-color: #42a5f5;
-    --primary-color-dark: #1e88e5;
-    --primary-color-light: #90caf9;
-    --primary-color-rgb: 66, 165, 245;
+[data-theme="dark"][data-theme-color="pink"] {
+    --primary-color: #ff6b8b;
+    --primary-color-dark: #e85e7c;
+    --primary-color-light: #ff96ad;
+    --primary-color-rgb: 255, 107, 139;
 }
 
-[data-theme="dark"][data-theme-color="blue"] {
+/* 蓝色主题 */
+[data-theme-color="blue"] {
     --primary-color: #90caf9;
     --primary-color-dark: #42a5f5;
     --primary-color-light: #bbdefb;
     --primary-color-rgb: 144, 202, 249;
 }
 
-/* 绿色主题 */
-[data-theme-color="green"] {
-    --primary-color: #66bb6a;
-    --primary-color-dark: #43a047;
-    --primary-color-light: #a5d6a7;
-    --primary-color-rgb: 102, 187, 106;
+[data-theme="dark"][data-theme-color="blue"] {
+    --primary-color: #42a5f5;
+    --primary-color-dark: #1e88e5;
+    --primary-color-light: #90caf9;
+    --primary-color-rgb: 66, 165, 245;
 }
 
-[data-theme="dark"][data-theme-color="green"] {
+/* 绿色主题 */
+[data-theme-color="green"] {
     --primary-color: #a5d6a7;
     --primary-color-dark: #66bb6a;
     --primary-color-light: #c8e6c9;
     --primary-color-rgb: 165, 214, 167;
 }
 
-/* 紫色主题 */
-[data-theme-color="purple"] {
-    --primary-color: #ab47bc;
-    --primary-color-dark: #8e24aa;
-    --primary-color-light: #ce93d8;
-    --primary-color-rgb: 171, 71, 188;
+[data-theme="dark"][data-theme-color="green"] {
+    --primary-color: #66bb6a;
+    --primary-color-dark: #43a047;
+    --primary-color-light: #a5d6a7;
+    --primary-color-rgb: 102, 187, 106;
 }
 
-[data-theme="dark"][data-theme-color="purple"] {
+/* 紫色主题 */
+[data-theme-color="purple"] {
     --primary-color: #ce93d8;
     --primary-color-dark: #ab47bc;
     --primary-color-light: #e1bee7;
     --primary-color-rgb: 206, 147, 216;
 }
 
-/* 橙色主题 */
-[data-theme-color="orange"] {
-    --primary-color: #ff9800;
-    --primary-color-dark: #f57c00;
-    --primary-color-light: #ffcc80;
-    --primary-color-rgb: 255, 152, 0;
+[data-theme="dark"][data-theme-color="purple"] {
+    --primary-color: #ab47bc;
+    --primary-color-dark: #8e24aa;
+    --primary-color-light: #ce93d8;
+    --primary-color-rgb: 171, 71, 188;
 }
 
-[data-theme="dark"][data-theme-color="orange"] {
+/* 橙色主题 */
+[data-theme-color="orange"] {
     --primary-color: #ffb74d;
     --primary-color-dark: #ff9800;
     --primary-color-light: #ffd180;
     --primary-color-rgb: 255, 183, 77;
+}
+
+[data-theme="dark"][data-theme-color="orange"] {
+    --primary-color: #ff9800;
+    --primary-color-dark: #f57c00;
+    --primary-color-light: #ffcc80;
+    --primary-color-rgb: 255, 152, 0;
 }
 
 /* 特殊主题样式 */

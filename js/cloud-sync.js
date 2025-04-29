@@ -226,22 +226,39 @@ const CloudSync = {
         // 检查是否已存在同步按钮
         let syncBtn = document.querySelector('.sync-btn');
         if (syncBtn) {
-            console.log('云同步按钮已存在，无需重新添加');
+            console.log('云同步按钮已存在，更新状态');
+            this.updateSyncButtonState(syncBtn);
             return;
         }
         
         // 创建按钮
         console.log('创建云同步按钮...');
-            syncBtn = document.createElement('button');
-            syncBtn.className = 'sync-btn';
-            syncBtn.innerHTML = '云同步';
-        syncBtn.style.backgroundColor = '#4285f4'; // 使用Google蓝色
+        syncBtn = document.createElement('button');
+        syncBtn.className = 'sync-btn';
+        syncBtn.innerHTML = '云同步';
+        syncBtn.style.backgroundColor = '#4285f4';
         syncBtn.style.color = 'white';
         syncBtn.style.border = 'none';
         syncBtn.style.padding = '8px 12px';
         syncBtn.style.borderRadius = '4px';
         syncBtn.style.cursor = 'pointer';
         syncBtn.style.transition = 'background-color 0.3s';
+        syncBtn.style.position = 'relative';
+        
+        // 添加状态指示器
+        const statusDot = document.createElement('span');
+        statusDot.className = 'sync-status-dot';
+        statusDot.style.position = 'absolute';
+        statusDot.style.top = '-5px';
+        statusDot.style.right = '-5px';
+        statusDot.style.width = '10px';
+        statusDot.style.height = '10px';
+        statusDot.style.borderRadius = '50%';
+        statusDot.style.border = '2px solid white';
+        syncBtn.appendChild(statusDot);
+        
+        // 更新按钮状态
+        this.updateSyncButtonState(syncBtn);
         
         // 添加悬停效果
         syncBtn.addEventListener('mouseover', () => {
@@ -259,8 +276,24 @@ const CloudSync = {
         });
         
         // 添加到DOM
-            dataActions.appendChild(syncBtn);
+        dataActions.appendChild(syncBtn);
         console.log('云同步按钮已添加到DOM');
+    },
+    
+    // 更新同步按钮状态
+    updateSyncButtonState(button) {
+        const statusDot = button.querySelector('.sync-status-dot');
+        const accessToken = localStorage.getItem('dropbox_access_token');
+        
+        if (!accessToken) {
+            button.title = '点击设置云同步';
+            statusDot.style.backgroundColor = '#ff4444'; // 红色表示未授权
+            button.innerHTML = '云同步 <span class="sync-status-dot" style="position:absolute;top:-5px;right:-5px;width:10px;height:10px;border-radius:50%;border:2px solid white;background-color:#ff4444;"></span>';
+        } else {
+            button.title = '已启用云同步';
+            statusDot.style.backgroundColor = '#4CAF50'; // 绿色表示已授权
+            button.innerHTML = '云同步 <span class="sync-status-dot" style="position:absolute;top:-5px;right:-5px;width:10px;height:10px;border-radius:50%;border:2px solid white;background-color:#4CAF50;"></span>';
+        }
     },
     
     // 同步按钮点击事件
@@ -282,12 +315,14 @@ const CloudSync = {
         
         // 检查是否已授权
         if (!localStorage.getItem('dropbox_access_token')) {
+            console.log('未授权，开始授权流程');
             await this.authorize();
         } else {
             // 验证令牌状态
             const tokenStatus = await this.verifyTokenStatus();
             
             if (tokenStatus.valid) {
+                console.log('令牌有效，开始同步');
                 await this.sync();
             } else {
                 console.log('令牌状态检查失败:', tokenStatus.reason);

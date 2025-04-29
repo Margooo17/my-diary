@@ -93,10 +93,10 @@
 }
 
 [data-theme="dark"][data-theme-color="orange"] {
-    --primary-color: #ffcc80;
+    --primary-color: #ffb74d;
     --primary-color-dark: #ff9800;
-    --primary-color-light: #ffe0b2;
-    --primary-color-rgb: 255, 204, 128;
+    --primary-color-light: #ffd180;
+    --primary-color-rgb: 255, 183, 77;
 }
 
 /* 特殊主题样式 */

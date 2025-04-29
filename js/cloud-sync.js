@@ -217,8 +217,6 @@ const CloudSync = {
         const dataActions = document.querySelector('.data-actions');
         if (!dataActions) {
             console.error('未找到.data-actions元素，无法添加云同步按钮');
-            
-            // 如果找不到.data-actions，尝试延迟添加
             setTimeout(() => this.addSyncButton(), 500);
             return;
         }
@@ -235,26 +233,47 @@ const CloudSync = {
         console.log('创建云同步按钮...');
         syncBtn = document.createElement('button');
         syncBtn.className = 'sync-btn';
-        syncBtn.innerHTML = '云同步';
-        syncBtn.style.backgroundColor = '#4285f4';
-        syncBtn.style.color = 'white';
-        syncBtn.style.border = 'none';
-        syncBtn.style.padding = '8px 12px';
-        syncBtn.style.borderRadius = '4px';
-        syncBtn.style.cursor = 'pointer';
-        syncBtn.style.transition = 'background-color 0.3s';
-        syncBtn.style.position = 'relative';
+        syncBtn.style.cssText = `
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        `;
+        
+        // 创建图标
+        const icon = document.createElement('span');
+        icon.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+            </svg>
+        `;
+        
+        // 创建文本
+        const text = document.createElement('span');
+        text.textContent = '云同步';
         
         // 添加状态指示器
         const statusDot = document.createElement('span');
         statusDot.className = 'sync-status-dot';
-        statusDot.style.position = 'absolute';
-        statusDot.style.top = '-5px';
-        statusDot.style.right = '-5px';
-        statusDot.style.width = '10px';
-        statusDot.style.height = '10px';
-        statusDot.style.borderRadius = '50%';
-        statusDot.style.border = '2px solid white';
+        statusDot.style.cssText = `
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            border: 2px solid white;
+            margin-left: 4px;
+        `;
+        
+        // 组装按钮
+        syncBtn.appendChild(icon);
+        syncBtn.appendChild(text);
         syncBtn.appendChild(statusDot);
         
         // 更新按钮状态
@@ -263,10 +282,14 @@ const CloudSync = {
         // 添加悬停效果
         syncBtn.addEventListener('mouseover', () => {
             syncBtn.style.backgroundColor = '#3367d6';
+            syncBtn.style.transform = 'translateY(-1px)';
+            syncBtn.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
         });
         
         syncBtn.addEventListener('mouseout', () => {
             syncBtn.style.backgroundColor = '#4285f4';
+            syncBtn.style.transform = 'translateY(0)';
+            syncBtn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
         });
         
         // 添加点击事件
@@ -287,12 +310,12 @@ const CloudSync = {
         
         if (!accessToken) {
             button.title = '点击设置云同步';
-            statusDot.style.backgroundColor = '#ff4444'; // 红色表示未授权
-            button.innerHTML = '云同步 <span class="sync-status-dot" style="position:absolute;top:-5px;right:-5px;width:10px;height:10px;border-radius:50%;border:2px solid white;background-color:#ff4444;"></span>';
+            statusDot.style.backgroundColor = '#ff4444';
+            button.querySelector('span:last-child').textContent = '未同步';
         } else {
             button.title = '已启用云同步';
-            statusDot.style.backgroundColor = '#4CAF50'; // 绿色表示已授权
-            button.innerHTML = '云同步 <span class="sync-status-dot" style="position:absolute;top:-5px;right:-5px;width:10px;height:10px;border-radius:50%;border:2px solid white;background-color:#4CAF50;"></span>';
+            statusDot.style.backgroundColor = '#4CAF50';
+            button.querySelector('span:last-child').textContent = '已同步';
         }
     },
     

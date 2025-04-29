@@ -331,6 +331,12 @@ const CloudSync = {
     
     // 提示用户输入APP_KEY
     promptForAppKey() {
+        // 检查是否已存在提示窗口
+        if (document.querySelector('.app-key-prompt')) {
+            console.log('设置窗口已存在，不重复创建');
+            return;
+        }
+
         const appKeyPrompt = document.createElement('div');
         appKeyPrompt.className = 'app-key-prompt';
         appKeyPrompt.style.position = 'fixed';
@@ -342,32 +348,50 @@ const CloudSync = {
         appKeyPrompt.style.borderRadius = '8px';
         appKeyPrompt.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
         appKeyPrompt.style.zIndex = '10000';
-        appKeyPrompt.style.maxWidth = '500px';
-        appKeyPrompt.style.textAlign = 'center';
+        appKeyPrompt.style.maxWidth = '600px';
+        appKeyPrompt.style.width = '90%';
+        appKeyPrompt.style.textAlign = 'left';
         appKeyPrompt.style.color = '#333';
         
         appKeyPrompt.innerHTML = `
-            <h3 style="margin-top:0;color:#1a73e8;">设置Dropbox应用密钥</h3>
-            <p>您需要创建自己的Dropbox应用并设置应用密钥(App Key)。</p>
-            <ol style="text-align:left;line-height:1.6;">
-                <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
-                <li>登录您的Dropbox账号</li>
-                <li>点击"创建应用"按钮</li>
-                <li>选择"Scoped access" API</li>
-                <li>选择"App folder"（应用文件夹）选项</li>
-                <li>为您的应用取一个名称，如"我的日记本"</li>
-                <li>点击"创建应用"</li>
-                <li>在应用详情页面找到"App key"并复制</li>
-            </ol>
-            <p>请输入您的Dropbox应用密钥：</p>
-            <input type="text" id="app-key-input" style="width:100%;padding:10px;margin:10px 0;border:1px solid #ddd;border-radius:4px;font-size:14px;" placeholder="粘贴App Key...">
-            <div style="display:flex;justify-content:space-between;margin-top:15px;">
+            <h3 style="margin-top:0;color:#1a73e8;text-align:center;margin-bottom:20px;">设置Dropbox应用密钥</h3>
+            <div style="margin-bottom:20px;">
+                <p style="margin-bottom:15px;">请按照以下步骤获取Dropbox App Key：</p>
+                <ol style="line-height:1.8;">
+                    <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
+                    <li>使用您的Dropbox账号登录</li>
+                    <li>在页面右上角，点击蓝色的"Create app"按钮</li>
+                    <li>在"Choose an API"部分，选择"Scoped access"</li>
+                    <li>在"Choose the type of access"部分，选择"App folder"</li>
+                    <li>在"Name your app"输入框中，输入一个名称（如"我的日记本"）</li>
+                    <li>点击"Create app"按钮创建应用</li>
+                    <li>在新页面中，找到"Settings"标签页（默认就在这个标签页）</li>
+                    <li>在"App key"部分，您会看到一串字符，这就是需要的App Key</li>
+                    <li>点击"Show"按钮显示完整的Key，然后复制它</li>
+                </ol>
+            </div>
+            <div style="background:#f5f5f5;padding:15px;border-radius:8px;margin-bottom:20px;">
+                <p style="margin:0;font-weight:500;color:#333;">安全提示：</p>
+                <ul style="margin:10px 0 0 0;padding-left:20px;color:#666;">
+                    <li>App Key 仅会保存在您的浏览器中</li>
+                    <li>不会上传到任何服务器</li>
+                    <li>仅用于访问您自己的Dropbox文件夹</li>
+                </ul>
+            </div>
+            <input type="text" id="app-key-input" style="width:100%;padding:10px;margin:10px 0;border:1px solid #ddd;border-radius:4px;font-size:14px;" placeholder="粘贴 App Key...">
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:15px;">
                 <button id="cancel-app-key" style="padding:8px 16px;background:#f0f0f0;border:none;border-radius:4px;cursor:pointer;">取消</button>
                 <button id="submit-app-key" style="padding:8px 16px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;">保存并继续</button>
             </div>
         `;
         
         document.body.appendChild(appKeyPrompt);
+        
+        // 移除任何已存在的设置云同步提示
+        const existingPrompt = document.querySelector('.sync-setup-prompt');
+        if (existingPrompt) {
+            existingPrompt.remove();
+        }
         
         // 设置事件监听
         document.getElementById('cancel-app-key').addEventListener('click', () => {
@@ -1484,43 +1508,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // 检查是否已设置Dropbox App Key
         if (!CloudSync.loadAppKey()) {
-            console.log('未设置Dropbox App Key，显示设置提示');
-            // 显示设置提示
-            const setupHtml = `
-                <div class="sync-setup-prompt" style="
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: #fff;
-                    padding: 20px;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                    z-index: 1000;
-                    max-width: 400px;
-                ">
-                    <h3 style="margin: 0 0 10px 0; color: #333;">设置云同步</h3>
-                    <p style="margin: 0 0 15px 0; color: #666;">
-                        要使用云同步功能，需要先设置Dropbox App Key。
-                        <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color: #0061fe;">点击这里</a> 创建应用并获取App Key。
-                    </p>
-                    <input type="text" id="dropboxAppKey" placeholder="输入你的Dropbox App Key" style="
-                        width: 100%;
-                        padding: 8px;
-                        margin-bottom: 10px;
-                        border: 1px solid #ddd;
-                        border-radius: 4px;
-                    ">
-                    <button onclick="CloudSync.saveAppKey(document.getElementById('dropboxAppKey').value)" style="
-                        background: #0061fe;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                    ">保存</button>
-                </div>
-            `;
-            document.body.insertAdjacentHTML('beforeend', setupHtml);
+            console.log('未设置Dropbox App Key');
+            // 不自动显示设置提示，等待用户点击云同步按钮时再显示
         }
         
         // 检查URL是否包含访问令牌 - 优先处理授权回调
@@ -1529,21 +1518,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             // 立即尝试处理重定向
             await CloudSync.handleRedirect();
         }
-        // 检查是否有网络连接
-        if (!navigator.onLine) {
-            console.warn('无网络连接，云同步功能可能不可用');
-        }
-        // 检查必要的脚本是否加载
-        if (typeof Dropbox === 'undefined' || typeof CryptoJS === 'undefined') {
-            console.error('云同步依赖的库未正确加载，请检查网络或刷新页面');
-            return;
-        }
+        
         // 初始化云同步模块
-        const initResult = CloudSync.init();
+        CloudSync.init();
+        
         // 提供明确的用户反馈
         if (CloudSync.initialized) {
             console.log('云同步模块初始化成功');
         }
+        
         // 检查本地存储的令牌是否接近过期
         const tokenExpires = localStorage.getItem('dropbox_token_expires');
         if (tokenExpires) {
@@ -1553,41 +1536,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             // 如果令牌剩余时间不足24小时，提醒用户
             if (timeLeftHours > 0 && timeLeftHours < 24) {
                 console.warn(`Dropbox授权将在约${Math.floor(timeLeftHours)}小时后过期`);
-                // 但我们不自动更新，等用户下次点击同步按钮时会检查并更新
             }
         }
-        // 如果用户离线且之前已授权，添加提示
-        if (!navigator.onLine && localStorage.getItem('dropbox_access_token')) {
-            const lastSyncTime = localStorage.getItem('last_sync_time');
-            if (lastSyncTime) {
-                const syncDate = new Date(lastSyncTime);
-                console.log(`上次同步时间: ${syncDate.toLocaleString()}`);
-            }
-        }
-        // ------------------- Apple风格自动同步增强 -------------------
-        // 1. 页面加载时自动同步
-        if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
-            try {
-                CloudSync.showSyncProgress('正在自动同步...', false, false);
-                await CloudSync.sync();
-            } catch (e) {
-                CloudSync.showSyncProgress('自动同步失败', true, true);
-                console.error('自动同步失败:', e);
-            }
-        }
-        // 2. 定时自动同步（每60秒）
-        setInterval(async () => {
-            if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
-                try {
-                    CloudSync.showSyncProgress('正在自动同步...', false, false);
-                    await CloudSync.sync();
-                } catch (e) {
-                    CloudSync.showSyncProgress('自动同步失败', true, true);
-                    console.error('定时自动同步失败:', e);
-                }
-            }
-        }, 60000); // 60秒
-        // ----------------------------------------------------------
     } catch (error) {
         console.error('初始化云同步模块时出错:', error);
     }

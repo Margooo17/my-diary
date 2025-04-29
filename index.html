@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title id="page-title">博客式日记本</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -39,6 +42,7 @@
                 <button class="import-btn">导入</button>
                 <button class="export-btn">导出</button>
                 <button class="recover-btn" onclick="CloudSync.recoverFromBackup()">恢复数据</button>
+                <button class="emergency-sync-btn" onclick="CloudSync.emergencyForceSync()">紧急同步</button>
                 <!-- 云同步按钮将在这里自动添加 -->
             </div>
             <div class="theme-switch">
@@ -132,6 +136,58 @@
             // 再初始化日记功能
             Diary.init();
             
+            // 添加紧急同步方法
+            if (typeof CloudSync !== 'undefined') {
+                CloudSync.emergencyForceSync = async function() {
+                    console.log('执行紧急强制同步');
+                    // 在UI上显示正在同步
+                    this.showSyncProgress('正在强制从云端同步...', false);
+                    
+                    try {
+                        // 检查令牌状态
+                        const tokenStatus = await this.verifyTokenStatus();
+                        if (!tokenStatus.valid) {
+                            console.log('令牌无效，需要重新授权');
+                            this.showSyncNotification('需要重新授权，请点击授权按钮', 'error');
+                            this.showSyncProgress('同步失败: 需要授权', true, true);
+                            setTimeout(() => this.authorize(), 1000);
+                            return;
+                        }
+                        
+                        // 尝试从云端下载
+                        console.log('尝试从云端下载数据...');
+                        const cloudData = await this.downloadFromCloud();
+                        
+                        if (Array.isArray(cloudData) && cloudData.length > 0) {
+                            console.log(`成功获取${cloudData.length}条云端数据`);
+                            
+                            // 直接将云端数据保存到本地，覆盖本地数据
+                            localStorage.setItem('diaries', JSON.stringify(cloudData));
+                            await this.saveLocalData(cloudData);
+                            
+                            // 强制刷新页面
+                            this.shouldForceRefresh = true;
+                            this.triggerPageRefresh();
+                            
+                            // 显示成功通知
+                            this.showSyncNotification(`同步成功，已加载${cloudData.length}条日记`, 'success');
+                            this.showSyncProgress('同步成功', true);
+                            
+                            // 1秒后刷新整个页面
+                            setTimeout(() => window.location.reload(), 1000);
+                        } else {
+                            console.log('云端没有数据或数据格式不正确');
+                            this.showSyncNotification('云端没有有效数据', 'error');
+                            this.showSyncProgress('同步失败: 云端无数据', true, true);
+                        }
+                    } catch (error) {
+                        console.error('紧急同步失败:', error);
+                        this.showSyncNotification('同步失败: ' + error.message, 'error');
+                        this.showSyncProgress('同步失败', true, true);
+                    }
+                };
+            }
+            
             // 额外为保存按钮添加事件监听
             const saveBtn = document.querySelector('.save-btn');
             if (saveBtn) {
@@ -141,6 +197,15 @@
                     e.preventDefault();
                     Diary.saveAndClose();
                 });
+            }
+            
+            // 检查URL参数
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('force_sync') && urlParams.get('force_sync') === 'true') {
+                console.log('检测到force_sync参数，执行强制同步');
+                if (typeof CloudSync !== 'undefined' && typeof CloudSync.emergencyForceSync === 'function') {
+                    setTimeout(() => CloudSync.emergencyForceSync(), 1500);
+                }
             }
             
             console.log('初始化完成');

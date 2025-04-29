@@ -488,51 +488,108 @@ const CloudSync = {
         try {
             console.log('开始Dropbox授权流程...');
             
+            // 检查是否已存在授权窗口
+            if (document.querySelector('.auth-info')) {
+                console.log('授权窗口已存在，不重复创建');
+                return;
+            }
+            
             // 创建授权弹窗提示
             const authInfo = document.createElement('div');
             authInfo.className = 'auth-info';
-            authInfo.style.position = 'fixed';
-            authInfo.style.top = '50%';
-            authInfo.style.left = '50%';
-            authInfo.style.transform = 'translate(-50%, -50%)';
-            authInfo.style.backgroundColor = 'white';
-            authInfo.style.padding = '20px';
-            authInfo.style.borderRadius = '8px';
-            authInfo.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-            authInfo.style.zIndex = '10000';
-            authInfo.style.maxWidth = '500px';
-            authInfo.style.textAlign = 'center';
-            authInfo.style.color = '#333';
+            authInfo.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background-color: white;
+                padding: 20px;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                z-index: 10000;
+                width: 90%;
+                max-width: 600px;
+                max-height: 90vh;
+                overflow-y: auto;
+                text-align: left;
+                color: #333;
+                -webkit-overflow-scrolling: touch;
+            `;
+            
+            // 添加遮罩层
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 9999;
+            `;
+            document.body.appendChild(overlay);
             
             authInfo.innerHTML = `
-                <h3 style="margin-top:0;color:#1a73e8;">Dropbox授权</h3>
-                <p>请按照以下步骤获取您的Dropbox访问令牌：</p>
-                <ol style="text-align:left;line-height:1.6;">
-                    <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
-                    <li>登录您的Dropbox账号</li>
-                    <li>点击"创建应用"按钮</li>
-                    <li>选择"Scoped access" API</li>
-                    <li>选择"App folder"（应用文件夹）选项</li>
-                    <li>为您的应用取一个名称，如"我的日记本"</li>
-                    <li>点击"创建应用"</li>
-                    <li>在"权限"标签页中，勾选以下权限：
-                        <ul style="margin-top:5px;margin-bottom:5px;">
-                            <li>files.metadata.read</li>
-                            <li>files.metadata.write</li>
-                            <li>files.content.read</li>
-                            <li>files.content.write</li>
-                        </ul>
-                    </li>
-                    <li>点击"提交"保存权限</li>
-                    <li>在"设置"标签页中，找到"访问令牌"部分</li>
-                    <li>点击"生成"按钮创建一个访问令牌</li>
-                    <li>复制生成的访问令牌</li>
-                </ol>
-                <p>将访问令牌粘贴到下方：</p>
-                <input type="text" id="access-token-input" style="width:100%;padding:10px;margin:10px 0;border:1px solid #ddd;border-radius:4px;font-size:14px;" placeholder="粘贴访问令牌...">
-                <div style="display:flex;justify-content:space-between;margin-top:15px;">
-                    <button id="cancel-auth" style="padding:8px 16px;background:#f0f0f0;border:none;border-radius:4px;cursor:pointer;">取消</button>
-                    <button id="submit-token" style="padding:8px 16px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;">提交</button>
+                <div style="position:relative;padding-bottom:60px;">
+                    <h3 style="margin-top:0;color:#1a73e8;text-align:center;margin-bottom:20px;font-size:18px;">Dropbox授权</h3>
+                    <p style="margin-bottom:15px;font-size:14px;">请按照以下步骤获取您的Dropbox访问令牌：</p>
+                    <ol style="text-align:left;line-height:1.8;font-size:14px;padding-left:20px;">
+                        <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
+                        <li>登录您的Dropbox账号</li>
+                        <li>点击您创建的应用名称</li>
+                        <li>在"权限"标签页中，勾选以下权限：
+                            <ul style="margin-top:5px;margin-bottom:5px;padding-left:20px;">
+                                <li>files.metadata.read</li>
+                                <li>files.metadata.write</li>
+                                <li>files.content.read</li>
+                                <li>files.content.write</li>
+                            </ul>
+                        </li>
+                        <li>点击"提交"保存权限</li>
+                        <li>在"设置"标签页中，找到"OAuth 2"部分</li>
+                        <li>点击"生成"按钮创建一个访问令牌</li>
+                        <li>复制生成的访问令牌（以"sl."开头的字符串）</li>
+                    </ol>
+                    <p style="margin:15px 0;font-size:14px;">将访问令牌粘贴到下方：</p>
+                    <input type="text" id="access-token-input" style="
+                        width: 100%;
+                        padding: 10px;
+                        margin: 10px 0;
+                        border: 1px solid #ddd;
+                        border-radius: 4px;
+                        font-size: 16px;
+                        box-sizing: border-box;
+                    " placeholder="粘贴访问令牌...">
+                    <div style="
+                        position: fixed;
+                        bottom: 0;
+                        left: 0;
+                        right: 0;
+                        padding: 10px 20px;
+                        background: white;
+                        border-top: 1px solid #eee;
+                        display: flex;
+                        justify-content: flex-end;
+                        gap: 10px;
+                    ">
+                        <button id="cancel-auth" style="
+                            padding: 12px 16px;
+                            background: #f0f0f0;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 16px;
+                        ">取消</button>
+                        <button id="submit-token" style="
+                            padding: 12px 16px;
+                            background: #4CAF50;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 16px;
+                        ">提交</button>
+                    </div>
                 </div>
             `;
             
@@ -540,6 +597,7 @@ const CloudSync = {
             
             // 设置事件监听
             document.getElementById('cancel-auth').addEventListener('click', () => {
+                document.body.removeChild(overlay);
                 document.body.removeChild(authInfo);
                 console.log('用户取消了授权');
             });
@@ -555,6 +613,7 @@ const CloudSync = {
                 
                 // 存储访问令牌
                 localStorage.setItem('dropbox_access_token', token);
+                document.body.removeChild(overlay);
                 document.body.removeChild(authInfo);
                 
                 // 初始化客户端
@@ -565,6 +624,14 @@ const CloudSync = {
                 
                 // 执行同步
                 await this.sync();
+            });
+
+            // 防止iOS键盘弹出时窗口位置错误
+            const tokenInput = document.getElementById('access-token-input');
+            tokenInput.addEventListener('focus', () => {
+                setTimeout(() => {
+                    authInfo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 300);
             });
             
             return true;

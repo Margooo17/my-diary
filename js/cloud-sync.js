@@ -17,55 +17,38 @@
  */
 // 云同步模块
 const CloudSync = {
-    // Dropbox应用密钥 - 每个用户需要设置自己的密钥
-    // 我们将使用localStorage保存用户提供的APP_KEY
-    APP_KEY: '',
+    // Dropbox API 配置
+    APP_KEY: '', // 你的Dropbox API密钥
+    SYNC_FILE_PATH: '/diary_data.json', // 云端文件路径
     
-    // 从localStorage加载APP_KEY
-    loadAppKey() {
-        const savedKey = localStorage.getItem('dropbox_app_key');
-        if (savedKey) {
-            this.APP_KEY = savedKey;
-            return true;
-        }
-        return false;
-    },
-    
-    // 保存APP_KEY到localStorage
-    saveAppKey(key) {
-        if (key && key.trim() !== '') {
-            this.APP_KEY = key.trim();
-            localStorage.setItem('dropbox_app_key', this.APP_KEY);
-            return true;
-        }
-        return false;
-    },
-    
-    // 加密密钥，使用本地存储的密钥或生成新密钥
-    encryptionKey: null,
-    
-    // Dropbox客户端实例
+    // Dropbox 客户端实例
     dropboxClient: null,
     
-    // 同步文件路径
-    SYNC_FILE_PATH: '/diary-data.enc',
+    // 加密密钥
+    encryptionKey: null,
+    
+    // 启用紧急模式 - 首次连接时自动强制刷新
+    shouldForceRefresh: false, 
+    
+    // 同步恢复模式 - 启用时会尝试更多恢复策略
+    recoveryMode: false,
+    
+    // 自动同步配置
+    autoSyncConfig: {
+        enabled: true,
+        interval: 60000, // 60秒检查一次
+        lastSyncTime: null,
+        syncInProgress: false,
+        changeDetected: false,
+        retryCount: 0,
+        maxRetries: 3
+    },
     
     // 本地备份密钥
     LOCAL_BACKUP_KEY: 'diary_backup_data',
     
     // 同步锁
     isSyncing: false,
-    
-    // 自动同步相关配置
-    autoSyncConfig: {
-        enabled: true,           // 是否启用自动同步
-        interval: 30000,         // 同步间隔（毫秒）
-        lastSyncTime: null,      // 上次同步时间
-        syncInProgress: false,   // 是否正在同步
-        changeDetected: false,   // 是否检测到变化
-        retryCount: 0,           // 重试次数
-        maxRetries: 3            // 最大重试次数
-    },
     
     // 初始化
     init() {
@@ -98,6 +81,9 @@ const CloudSync = {
         
         // 确保IndexedDB初始化正确
         this.initIndexedDB();
+        
+        // 检查是否需要启用紧急恢复模式
+        this.checkRecoveryMode();
         
         console.log('云同步模块初始化完成');
         return true;
@@ -849,16 +835,29 @@ const CloudSync = {
             }
             
             // 使用CryptoJS进行AES解密
-            const decrypted = CryptoJS.AES.decrypt(encryptedData, this.encryptionKey).toString(CryptoJS.enc.Utf8);
+            let decrypted = '';
+            try {
+                decrypted = CryptoJS.AES.decrypt(encryptedData, this.encryptionKey).toString(CryptoJS.enc.Utf8);
+            } catch (decryptError) {
+                console.error('解密过程中出错:', decryptError);
+                
+                // 尝试使用备用解密方法
+                try {
+                    // 替换可能的损坏字符
+                    const cleanedData = encryptedData.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+                    decrypted = CryptoJS.AES.decrypt(cleanedData, this.encryptionKey).toString(CryptoJS.enc.Utf8);
+                } catch (backupError) {
+                    throw new Error('所有解密方法均失败: ' + backupError.message);
+                }
+            }
             
             // 验证解密结果
             if (!decrypted) {
                 throw new Error('解密失败，可能是密钥不正确');
             }
             
-            console.log('数据解密完成');
+            console.log('数据解密完成，长度:', decrypted.length);
             return decrypted;
-            
         } catch (error) {
             console.error('数据解密失败:', error);
             throw new Error('数据解密失败: ' + (error.message || '未知错误'));
@@ -887,18 +886,38 @@ const CloudSync = {
             this.autoSyncConfig.syncInProgress = true;
             this.showSyncProgress('正在同步数据...', true);
             
-            // 执行原有的同步逻辑
-            await this._performSync();
+            console.log('开始执行同步操作...');
             
-            // 更新同步状态
-            this.autoSyncConfig.lastSyncTime = Date.now();
-            this.autoSyncConfig.changeDetected = false;
-            this.autoSyncConfig.retryCount = 0;
+            // 设置同步模式参数
+            const syncOptions = {
+                recoveryMode: this.recoveryMode,
+                forceRefresh: false
+            };
             
-            // 保存配置
-            localStorage.setItem('autoSyncConfig', JSON.stringify(this.autoSyncConfig));
+            // 执行同步逻辑
+            const success = await this._performSync(syncOptions);
             
-            this.showSyncNotification('同步成功！', 'success');
+            if (success) {
+                // 更新同步状态
+                this.autoSyncConfig.lastSyncTime = Date.now();
+                this.autoSyncConfig.changeDetected = false;
+                this.autoSyncConfig.retryCount = 0;
+                
+                // 保存配置
+                localStorage.setItem('autoSyncConfig', JSON.stringify(this.autoSyncConfig));
+                
+                // 关闭恢复模式
+                if (this.recoveryMode) {
+                    console.log('同步成功，关闭恢复模式');
+                    this.recoveryMode = false;
+                }
+                
+                this.showSyncNotification('同步成功！', 'success');
+            } else {
+                console.log('同步返回失败状态');
+                this.autoSyncConfig.retryCount++;
+                this.showSyncNotification('同步未完成，请重试', 'error');
+            }
         } catch (error) {
             console.error('同步失败:', error);
             this.autoSyncConfig.retryCount++;
@@ -907,7 +926,14 @@ const CloudSync = {
                 console.log(`同步失败，将在30秒后重试（${this.autoSyncConfig.retryCount}/${this.autoSyncConfig.maxRetries}）`);
                 setTimeout(() => this.sync(), 30000);
             } else {
-                this.showSyncNotification('同步失败，请检查网络连接', 'error');
+                // 尝试启用恢复模式
+                if (!this.recoveryMode) {
+                    console.log('多次同步失败，启用恢复模式');
+                    this.recoveryMode = true;
+                    setTimeout(() => this.sync(), 5000);
+                } else {
+                    this.showSyncNotification('同步失败，请检查网络连接或重新授权', 'error');
+                }
             }
         } finally {
             this.autoSyncConfig.syncInProgress = false;
@@ -916,8 +942,8 @@ const CloudSync = {
     },
     
     // 原有的同步逻辑
-    async _performSync() {
-        console.log('执行同步操作...');
+    async _performSync(options = {}) {
+        console.log('执行同步操作...', options);
         
         try {
             // 获取本地数据
@@ -1281,13 +1307,37 @@ const CloudSync = {
             const diariesData = localStorage.getItem('diaries');
             if (diariesData) {
                 console.log('从localStorage获取数据并直接刷新列表');
-                const diaries = JSON.parse(diariesData);
+                let diaries = [];
+                
+                try {
+                    diaries = JSON.parse(diariesData);
+                    console.log(`JSON解析成功，获取到${diaries.length}条日记`);
+                } catch (parseError) {
+                    console.error('解析localStorage数据失败:', parseError);
+                    
+                    // 尝试修复损坏的数据
+                    const repaired = this.attemptJSONRepair(diariesData);
+                    if (repaired) {
+                        diaries = repaired;
+                        console.log(`修复后获取到${diaries.length}条日记`);
+                        
+                        // 保存修复后的数据回localStorage
+                        localStorage.setItem('diaries', JSON.stringify(diaries));
+                    }
+                }
+                
                 if (typeof Diary !== 'undefined' && typeof Diary.renderDiaries === 'function') {
                     console.log(`正在渲染${diaries.length}条日记`);
                     Diary.renderDiaries(diaries);
                     if (typeof Tags !== 'undefined' && typeof Tags.updateTagsList === 'function') {
                         Tags.updateTagsList();
                     }
+                    
+                    // 手动触发一次强制页面更新
+                    setTimeout(() => {
+                        console.log('执行延迟页面更新');
+                        Diary.renderDiaries(diaries);
+                    }, 1000);
                 }
             }
         } catch (e) {
@@ -1298,9 +1348,18 @@ const CloudSync = {
         try {
             console.log('触发diaryDataRefreshed事件');
             const refreshEvent = new CustomEvent('diaryDataRefreshed', {
-                detail: { time: new Date().toISOString() }
+                detail: { time: new Date().toISOString(), force: true }
             });
             document.dispatchEvent(refreshEvent);
+            
+            // 延迟再触发一次，确保页面更新
+            setTimeout(() => {
+                console.log('触发延迟diaryDataRefreshed事件');
+                const delayedEvent = new CustomEvent('diaryDataRefreshed', {
+                    detail: { time: new Date().toISOString(), delayed: true }
+                });
+                document.dispatchEvent(delayedEvent);
+            }, 1500);
         } catch (e) {
             console.error('触发事件失败:', e);
         }
@@ -1309,6 +1368,15 @@ const CloudSync = {
         if (typeof updateDiaryList === 'function') {
             console.log('调用updateDiaryList回调函数');
             updateDiaryList();
+        }
+        
+        // 4. 手动刷新页面（紧急情况下使用）
+        if (this.shouldForceRefresh) {
+            console.log('执行强制页面刷新');
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+            this.shouldForceRefresh = false;
         }
     },
     
@@ -1337,11 +1405,24 @@ const CloudSync = {
             
             // 从Blob读取文本内容
             const encryptedText = await this.readBlobAsText(fileBlob);
-            console.log('获取到加密数据，准备解密');
+            console.log('获取到加密数据，长度:', encryptedText.length);
             
             // 解密数据
-            const decryptedData = await this.decryptData(encryptedText);
-            return decryptedData;
+            const decryptedText = await this.decryptData(encryptedText);
+            console.log('解密后数据长度:', decryptedText.length);
+            
+            // 安全解析JSON
+            try {
+                const parsedData = this.safeJSONParse(decryptedText);
+                console.log('JSON解析成功，获取到数据项数量:', Array.isArray(parsedData) ? parsedData.length : '非数组数据');
+                return parsedData;
+            } catch (parseError) {
+                console.error('JSON解析失败，尝试修复数据格式:', parseError);
+                // 尝试修复可能的JSON格式问题
+                const fixedData = this.attemptJSONRepair(decryptedText);
+                console.log('修复后的数据:', fixedData ? '解析成功' : '修复失败');
+                return fixedData || [];
+            }
         } catch (error) {
             console.error('从云端下载失败:', error);
             
@@ -1351,6 +1432,92 @@ const CloudSync = {
             }
             
             throw new Error('从云端下载失败: ' + (error.message || '未知错误'));
+        }
+    },
+    
+    // 安全的JSON解析，处理多种格式问题
+    safeJSONParse(jsonString) {
+        if (!jsonString) return [];
+        
+        try {
+            // 尝试直接解析
+            const data = JSON.parse(jsonString);
+            
+            // 检查是否是数组
+            if (Array.isArray(data)) {
+                return data;
+            }
+            
+            // 如果是字符串（可能是嵌套的JSON字符串）
+            if (typeof data === 'string') {
+                try {
+                    const nestedData = JSON.parse(data);
+                    return Array.isArray(nestedData) ? nestedData : [];
+                } catch (e) {
+                    console.error('嵌套JSON解析失败:', e);
+                    return [];
+                }
+            }
+            
+            // 如果是对象但不是数组
+            if (data && typeof data === 'object') {
+                // 尝试找到数组属性
+                for (const key in data) {
+                    if (Array.isArray(data[key])) {
+                        return data[key];
+                    }
+                }
+            }
+            
+            return [];
+        } catch (error) {
+            console.error('JSON解析错误:', error);
+            throw error;
+        }
+    },
+    
+    // 尝试修复损坏的JSON字符串
+    attemptJSONRepair(jsonString) {
+        if (!jsonString) return null;
+        
+        try {
+            // 1. 尝试去除可能的BOM标记
+            const withoutBOM = jsonString.replace(/^\uFEFF/, '');
+            
+            // 2. 尝试移除开头和结尾的引号（如果有）
+            let cleaned = withoutBOM;
+            if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+                cleaned = cleaned.substring(1, cleaned.length - 1);
+            }
+            
+            // 3. 尝试解析修复后的字符串
+            return JSON.parse(cleaned);
+        } catch (e1) {
+            try {
+                // 4. 尝试修复常见的转义问题
+                const escaped = jsonString.replace(/\\"/g, '"').replace(/\\\\"/g, '\\"');
+                return JSON.parse(escaped);
+            } catch (e2) {
+                try {
+                    // 5. 尝试针对可能双重转义的情况
+                    const doubleEscaped = jsonString.replace(/\\\\/g, '\\');
+                    return JSON.parse(doubleEscaped);
+                } catch (e3) {
+                    console.error('所有JSON修复尝试均失败');
+                    // 最后尝试查找有效的JSON数组部分
+                    const arrayStart = jsonString.indexOf('[');
+                    const arrayEnd = jsonString.lastIndexOf(']');
+                    if (arrayStart !== -1 && arrayEnd !== -1 && arrayStart < arrayEnd) {
+                        try {
+                            const arrayPart = jsonString.substring(arrayStart, arrayEnd + 1);
+                            return JSON.parse(arrayPart);
+                        } catch (e4) {
+                            return null;
+                        }
+                    }
+                    return null;
+                }
+            }
         }
     },
     
@@ -1849,6 +2016,56 @@ const CloudSync = {
                 }
             }
         });
+    },
+    
+    // 检查是否需要启用恢复模式
+    checkRecoveryMode() {
+        // 检查是否有访问令牌但没有本地数据
+        const hasToken = !!localStorage.getItem('dropbox_access_token');
+        const diaries = localStorage.getItem('diaries');
+        const emptyData = !diaries || diaries === '[]' || diaries === '';
+        
+        if (hasToken && emptyData) {
+            console.log('检测到有访问令牌但没有本地数据，启用恢复模式');
+            this.recoveryMode = true;
+            this.shouldForceRefresh = true;
+            
+            // 立即尝试执行紧急恢复同步
+            setTimeout(() => this.emergencySync(), 2000);
+        }
+    },
+    
+    // 紧急恢复同步
+    async emergencySync() {
+        console.log('执行紧急恢复同步...');
+        this.showSyncProgress('正在执行紧急数据恢复...', false);
+        
+        try {
+            // 直接尝试从云端获取数据
+            const cloudData = await this.downloadFromCloud();
+            
+            if (Array.isArray(cloudData) && cloudData.length > 0) {
+                console.log(`从云端恢复了${cloudData.length}条日记`);
+                
+                // 直接保存到本地
+                localStorage.setItem('diaries', JSON.stringify(cloudData));
+                await this.saveLocalData(cloudData);
+                
+                // 强制刷新页面
+                this.shouldForceRefresh = true;
+                this.triggerPageRefresh();
+                
+                this.showSyncNotification(`恢复成功！已恢复${cloudData.length}条日记`, 'success');
+            } else {
+                console.log('云端恢复失败，没有获取到有效数据');
+                this.showSyncNotification('恢复失败，云端没有数据', 'error');
+            }
+        } catch (error) {
+            console.error('紧急恢复失败:', error);
+            this.showSyncNotification('数据恢复失败，请手动点击同步按钮', 'error');
+        } finally {
+            this.showSyncProgress('恢复操作完成', true);
+        }
     }
 };
 

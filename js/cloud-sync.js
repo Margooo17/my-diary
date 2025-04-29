@@ -1203,50 +1203,44 @@ const CloudSync = {
 };
 
 // 在页面加载时初始化
+// 自动同步与定时同步增强 by Apple风格AI
+
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         console.log('开始初始化云同步模块...');
-        
         // 检查URL是否包含访问令牌 - 优先处理授权回调
         if (window.location.hash.includes('access_token=')) {
             console.log('检测到页面加载时有授权回调');
             // 立即尝试处理重定向
             await CloudSync.handleRedirect();
         }
-        
         // 检查是否有网络连接
         if (!navigator.onLine) {
             console.warn('无网络连接，云同步功能可能不可用');
         }
-        
         // 检查必要的脚本是否加载
         if (typeof Dropbox === 'undefined' || typeof CryptoJS === 'undefined') {
             console.error('云同步依赖的库未正确加载，请检查网络或刷新页面');
             return;
         }
-        
         // 初始化云同步模块
         const initResult = CloudSync.init();
-        
         // 提供明确的用户反馈
         if (CloudSync.initialized) {
             console.log('云同步模块初始化成功');
         }
-        
         // 检查本地存储的令牌是否接近过期
         const tokenExpires = localStorage.getItem('dropbox_token_expires');
         if (tokenExpires) {
             const expireTime = parseInt(tokenExpires);
             const now = Date.now();
             const timeLeftHours = (expireTime - now) / (1000 * 60 * 60);
-            
             // 如果令牌剩余时间不足24小时，提醒用户
             if (timeLeftHours > 0 && timeLeftHours < 24) {
                 console.warn(`Dropbox授权将在约${Math.floor(timeLeftHours)}小时后过期`);
                 // 但我们不自动更新，等用户下次点击同步按钮时会检查并更新
             }
         }
-        
         // 如果用户离线且之前已授权，添加提示
         if (!navigator.onLine && localStorage.getItem('dropbox_access_token')) {
             const lastSyncTime = localStorage.getItem('last_sync_time');
@@ -1255,6 +1249,30 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.log(`上次同步时间: ${syncDate.toLocaleString()}`);
             }
         }
+        // ------------------- Apple风格自动同步增强 -------------------
+        // 1. 页面加载时自动同步
+        if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
+            try {
+                CloudSync.showSyncProgress('正在自动同步...', false, false);
+                await CloudSync.sync();
+            } catch (e) {
+                CloudSync.showSyncProgress('自动同步失败', true, true);
+                console.error('自动同步失败:', e);
+            }
+        }
+        // 2. 定时自动同步（每60秒）
+        setInterval(async () => {
+            if (window.CloudSync && localStorage.getItem('dropbox_access_token')) {
+                try {
+                    CloudSync.showSyncProgress('正在自动同步...', false, false);
+                    await CloudSync.sync();
+                } catch (e) {
+                    CloudSync.showSyncProgress('自动同步失败', true, true);
+                    console.error('定时自动同步失败:', e);
+                }
+            }
+        }, 60000); // 60秒
+        // ----------------------------------------------------------
     } catch (error) {
         console.error('初始化云同步模块时出错:', error);
     }

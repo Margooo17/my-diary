@@ -339,49 +339,103 @@ const CloudSync = {
 
         const appKeyPrompt = document.createElement('div');
         appKeyPrompt.className = 'app-key-prompt';
-        appKeyPrompt.style.position = 'fixed';
-        appKeyPrompt.style.top = '50%';
-        appKeyPrompt.style.left = '50%';
-        appKeyPrompt.style.transform = 'translate(-50%, -50%)';
-        appKeyPrompt.style.backgroundColor = 'white';
-        appKeyPrompt.style.padding = '20px';
-        appKeyPrompt.style.borderRadius = '8px';
-        appKeyPrompt.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-        appKeyPrompt.style.zIndex = '10000';
-        appKeyPrompt.style.maxWidth = '600px';
-        appKeyPrompt.style.width = '90%';
-        appKeyPrompt.style.textAlign = 'left';
-        appKeyPrompt.style.color = '#333';
+        appKeyPrompt.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 10000;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            text-align: left;
+            color: #333;
+            -webkit-overflow-scrolling: touch;
+        `;
+        
+        // 添加遮罩层
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 9999;
+        `;
+        document.body.appendChild(overlay);
         
         appKeyPrompt.innerHTML = `
-            <h3 style="margin-top:0;color:#1a73e8;text-align:center;margin-bottom:20px;">设置Dropbox应用密钥</h3>
-            <div style="margin-bottom:20px;">
-                <p style="margin-bottom:15px;">请按照以下步骤获取Dropbox App Key：</p>
-                <ol style="line-height:1.8;">
-                    <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
-                    <li>使用您的Dropbox账号登录</li>
-                    <li>在页面右上角，点击蓝色的"Create app"按钮</li>
-                    <li>在"Choose an API"部分，选择"Scoped access"</li>
-                    <li>在"Choose the type of access"部分，选择"App folder"</li>
-                    <li>在"Name your app"输入框中，输入一个名称（如"我的日记本"）</li>
-                    <li>点击"Create app"按钮创建应用</li>
-                    <li>在新页面中，找到"Settings"标签页（默认就在这个标签页）</li>
-                    <li>在"App key"部分，您会看到一串字符，这就是需要的App Key</li>
-                    <li>点击"Show"按钮显示完整的Key，然后复制它</li>
-                </ol>
-            </div>
-            <div style="background:#f5f5f5;padding:15px;border-radius:8px;margin-bottom:20px;">
-                <p style="margin:0;font-weight:500;color:#333;">安全提示：</p>
-                <ul style="margin:10px 0 0 0;padding-left:20px;color:#666;">
-                    <li>App Key 仅会保存在您的浏览器中</li>
-                    <li>不会上传到任何服务器</li>
-                    <li>仅用于访问您自己的Dropbox文件夹</li>
-                </ul>
-            </div>
-            <input type="text" id="app-key-input" style="width:100%;padding:10px;margin:10px 0;border:1px solid #ddd;border-radius:4px;font-size:14px;" placeholder="粘贴 App Key...">
-            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:15px;">
-                <button id="cancel-app-key" style="padding:8px 16px;background:#f0f0f0;border:none;border-radius:4px;cursor:pointer;">取消</button>
-                <button id="submit-app-key" style="padding:8px 16px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;">保存并继续</button>
+            <div style="position:relative;padding-bottom:60px;">
+                <h3 style="margin-top:0;color:#1a73e8;text-align:center;margin-bottom:20px;font-size:18px;">设置Dropbox应用密钥</h3>
+                <div style="margin-bottom:20px;font-size:14px;">
+                    <p style="margin-bottom:15px;">请按照以下步骤获取Dropbox App Key：</p>
+                    <ol style="line-height:1.8;padding-left:20px;">
+                        <li>访问 <a href="https://www.dropbox.com/developers/apps" target="_blank" style="color:#1a73e8;font-weight:bold;">Dropbox开发者平台</a></li>
+                        <li>使用您的Dropbox账号登录</li>
+                        <li>在页面右上角，点击蓝色的"Create app"按钮</li>
+                        <li>在"Choose an API"部分，选择"Scoped access"</li>
+                        <li>在"Choose the type of access"部分，选择"App folder"</li>
+                        <li>在"Name your app"输入框中，输入一个名称（如"我的日记本"）</li>
+                        <li>点击"Create app"按钮创建应用</li>
+                        <li>在新页面中，找到"Settings"标签页（默认就在这个标签页）</li>
+                        <li>在"App key"部分，您会看到一串字符，这就是需要的App Key</li>
+                        <li>点击"Show"按钮显示完整的Key，然后复制它</li>
+                    </ol>
+                </div>
+                <div style="background:#f5f5f5;padding:15px;border-radius:8px;margin-bottom:20px;font-size:14px;">
+                    <p style="margin:0;font-weight:500;color:#333;">安全提示：</p>
+                    <ul style="margin:10px 0 0 0;padding-left:20px;color:#666;">
+                        <li>App Key 仅会保存在您的浏览器中</li>
+                        <li>不会上传到任何服务器</li>
+                        <li>仅用于访问您自己的Dropbox文件夹</li>
+                    </ul>
+                </div>
+                <input type="text" id="app-key-input" style="
+                    width: 100%;
+                    padding: 10px;
+                    margin: 10px 0;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    font-size: 16px;
+                    box-sizing: border-box;
+                " placeholder="粘贴 App Key...">
+                <div style="
+                    position: fixed;
+                    bottom: 0;
+                    left: 0;
+                    right: 0;
+                    padding: 10px 20px;
+                    background: white;
+                    border-top: 1px solid #eee;
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 10px;
+                ">
+                    <button id="cancel-app-key" style="
+                        padding: 8px 16px;
+                        background: #f0f0f0;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 16px;
+                    ">取消</button>
+                    <button id="submit-app-key" style="
+                        padding: 8px 16px;
+                        background: #4CAF50;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 16px;
+                    ">保存并继续</button>
+                </div>
             </div>
         `;
         
@@ -395,6 +449,7 @@ const CloudSync = {
         
         // 设置事件监听
         document.getElementById('cancel-app-key').addEventListener('click', () => {
+            document.body.removeChild(overlay);
             document.body.removeChild(appKeyPrompt);
         });
         
@@ -409,6 +464,7 @@ const CloudSync = {
             
             // 保存App Key
             this.saveAppKey(appKey);
+            document.body.removeChild(overlay);
             document.body.removeChild(appKeyPrompt);
             
             // 重新初始化客户端
@@ -416,6 +472,14 @@ const CloudSync = {
             
             // 继续授权流程
             await this.authorize();
+        });
+
+        // 防止iOS键盘弹出时窗口位置错误
+        const appKeyInput = document.getElementById('app-key-input');
+        appKeyInput.addEventListener('focus', () => {
+            setTimeout(() => {
+                appKeyPrompt.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 300);
         });
     },
     

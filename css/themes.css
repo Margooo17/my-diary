@@ -26,17 +26,17 @@
 
 /* 粉色主题 */
 [data-theme-color="pink"] {
-    --primary-color: #ec407a;
-    --primary-color-dark: #d81b60;
-    --primary-color-light: #f48fb1;
-    --primary-color-rgb: 236, 64, 122;
+    --primary-color: #e08396;
+    --primary-color-dark: #c1667a;
+    --primary-color-light: #eea9b8;
+    --primary-color-rgb: 224, 131, 150;
 }
 
 [data-theme="dark"][data-theme-color="pink"] {
-    --primary-color: #f48fb1;
-    --primary-color-dark: #ec407a;
-    --primary-color-light: #f8bbd0;
-    --primary-color-rgb: 244, 143, 177;
+    --primary-color: #d496a7;
+    --primary-color-dark: #c1667a;
+    --primary-color-light: #eec4cf;
+    --primary-color-rgb: 212, 150, 167;
 }
 
 /* 蓝色主题 */

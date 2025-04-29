@@ -600,6 +600,10 @@ const Diary = {
                     console.error('云同步失败:', error);
                 }
             }
+
+        // 触发数据变化事件，通知云同步模块
+        window.dispatchEvent(new CustomEvent('diary-data-changed'));
+        window.dispatchEvent(new CustomEvent('diary-saved'));
         } catch (error) {
             console.error('保存日记失败:', error);
         } finally {

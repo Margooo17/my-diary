@@ -54,15 +54,11 @@ const Storage = {
 
     // 保存所有日记
     saveAllDiaries(diaries) {
-        // 为每条日记添加最后修改时间
-        const updatedDiaries = diaries.map(diary => {
-            if (!diary.lastModified) {
-                diary.lastModified = new Date().toISOString();
-            }
-            return diary;
-        });
+        localStorage.setItem('diaries', JSON.stringify(diaries));
+        console.log('保存了', diaries.length, '条日记');
         
-        localStorage.setItem('diaries', JSON.stringify(updatedDiaries));
+        // 触发数据变化事件
+        window.dispatchEvent(new CustomEvent('diary-data-changed'));
         
         // 检查并显示存储警告
         const stats = this.getStorageStats();

@@ -180,13 +180,77 @@
     background-color: var(--primary-color-dark);
 }
 
+/* 云同步模块样式 */
+.cloud-sync-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 0.9rem;
+    gap: 8px;
+    margin-top: 10px;
+    width: 100%;
+}
+
+.cloud-sync-btn i {
+    font-size: 16px;
+}
+
+.cloud-sync-btn:hover {
+    background-color: var(--primary-color-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 同步状态文本样式 */
+.sync-status-text {
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background-color: rgba(0, 0, 0, 0.05);
+    font-size: 0.85rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    color: var(--text-color);
+}
+
+.sync-status-text.not-connected {
+    color: #f44336;
+}
+
+.sync-status-text.connected {
+    color: #4caf50;
+}
+
+/* 夜间模式下同步状态文本样式 */
+[data-theme="dark"] .sync-status-text {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+[data-theme="dark"] .sync-status-text.not-connected {
+    color: #ff8a80;
+    font-weight: 500;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+[data-theme="dark"] .sync-status-text.connected {
+    color: #81c784;
+}
+
 /* 同步通知样式 */
 .sync-notification {
     position: fixed;
     bottom: 20px;
     right: 20px;
     padding: 12px 16px;
-    border-radius: 6px;
+    border-radius: 8px;
     background-color: var(--card-bg);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     font-size: 0.9rem;
@@ -194,7 +258,10 @@
     max-width: 300px;
     display: flex;
     align-items: center;
+    gap: 8px;
     animation: slide-in 0.3s ease forwards;
+    opacity: 0;
+    transform: translateX(100%);
 }
 
 .sync-notification.success {
@@ -214,7 +281,6 @@
 }
 
 .sync-notification i {
-    margin-right: 8px;
     font-size: 1.1rem;
 }
 
@@ -226,6 +292,69 @@
     to {
         transform: translateX(0);
         opacity: 1;
+    }
+}
+
+/* 自动同步提示 */
+.auto-sync-indicator {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    background-color: var(--card-bg);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.auto-sync-indicator.active {
+    opacity: 1;
+}
+
+.auto-sync-indicator i {
+    font-size: 18px;
+    color: var(--primary-color);
+    animation: rotating 1.5s linear infinite;
+}
+
+@keyframes rotating {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+    .sync-notification {
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%) translateY(100%);
+        bottom: 10px;
+        max-width: 90%;
+    }
+    
+    .sync-notification.active {
+        transform: translateX(-50%) translateY(0);
+    }
+    
+    @keyframes slide-in {
+        from {
+            transform: translateX(-50%) translateY(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
     }
 }
 

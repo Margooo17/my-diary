@@ -374,9 +374,29 @@ const CloudSync = {
      * 显示同步状态
      */
     showSyncStatus(message) {
-        const statusElement = document.getElementById('sync-status');
-        if (statusElement) {
-            statusElement.textContent = message;
+        const syncStatus = document.createElement('div');
+        syncStatus.id = 'sync-status-text';
+        syncStatus.className = 'sync-status-text';
+        
+        // 根据消息类型添加不同的class
+        if (message.includes('未连接')) {
+            syncStatus.classList.add('not-connected');
+        } else if (message.includes('已连接')) {
+            syncStatus.classList.add('connected');
+        }
+        
+        syncStatus.textContent = message;
+        
+        // 查找旧的状态文本并替换
+        const oldStatus = document.getElementById('sync-status-text');
+        if (oldStatus) {
+            oldStatus.replaceWith(syncStatus);
+        } else {
+            // 找到云同步按钮所在区域
+            const syncArea = document.querySelector('.data-actions');
+            if (syncArea) {
+                syncArea.appendChild(syncStatus);
+            }
         }
     },
     

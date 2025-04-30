@@ -50,20 +50,55 @@ const CloudSync = {
      * 初始化Dropbox客户端
      */
     initDropboxClient() {
-        this.dropboxClient = new Dropbox.Dropbox({
-            clientId: this.config.clientId
-        });
+        console.log('初始化Dropbox客户端...');
         
-        // 检查是否已授权（同时支持两种可能的存储键）
-        const accessToken = localStorage.getItem('dropboxAccessToken') || localStorage.getItem('dropbox_access_token');
-        if (accessToken) {
-            this.dropboxClient.setAccessToken(accessToken);
-            // 确保两个存储键都有相同的令牌值
-            localStorage.setItem('dropboxAccessToken', accessToken);
-            localStorage.setItem('dropbox_access_token', accessToken);
-            this.showSyncStatus('已连接到Dropbox');
-        } else {
-            this.showSyncStatus('未连接到云存储');
+        try {
+            if (typeof Dropbox === 'undefined') {
+                console.error('Dropbox SDK未加载');
+                return;
+            }
+            
+            // 检测Dropbox SDK版本并使用不同的初始化方法
+            if (typeof Dropbox.Dropbox === 'function') {
+                // 新版SDK
+                console.log('使用新版Dropbox SDK初始化');
+                this.dropboxClient = new Dropbox.Dropbox({
+                    clientId: this.config.clientId
+                });
+            } else if (typeof Dropbox === 'function') {
+                // 旧版SDK
+                console.log('使用旧版Dropbox SDK初始化');
+                this.dropboxClient = new Dropbox({
+                    clientId: this.config.clientId
+                });
+            } else {
+                console.error('无法识别Dropbox SDK版本');
+                return;
+            }
+            
+            // 检查是否已授权
+            const accessToken = localStorage.getItem('dropboxAccessToken') || localStorage.getItem('dropbox_access_token');
+            
+            if (accessToken) {
+                console.log('发现访问令牌，设置到客户端');
+                
+                // 根据SDK版本设置令牌
+                if (this.dropboxClient.auth) {
+                    this.dropboxClient.auth.setAccessToken(accessToken);
+                } else if (this.dropboxClient.setAccessToken) {
+                    this.dropboxClient.setAccessToken(accessToken);
+                }
+                
+                // 确保两个存储键都有相同的令牌值
+                localStorage.setItem('dropboxAccessToken', accessToken);
+                localStorage.setItem('dropbox_access_token', accessToken);
+                this.showSyncStatus('已连接到Dropbox');
+            } else {
+                console.log('未找到访问令牌，需要授权');
+                this.showSyncStatus('未连接到云存储');
+            }
+        } catch (error) {
+            console.error('初始化Dropbox客户端失败:', error);
         }
     },
     
@@ -82,36 +117,62 @@ const CloudSync = {
      * 创建同步按钮
      */
     createSyncButton() {
+        console.log('正在创建云同步按钮...');
+        
+        // 找到.data-actions容器
         const dataActions = document.querySelector('.data-actions');
         
-        if (!dataActions) return;
+        if (!dataActions) {
+            console.error('找不到.data-actions元素，无法创建云同步按钮');
+            return;
+        }
         
-        // 检查是否已存在同步按钮
-        if (!document.querySelector('.cloud-sync-btn')) {
-            // 创建新的同步按钮
-            const syncBtn = document.createElement('button');
-            syncBtn.className = 'cloud-sync-btn';
-            syncBtn.innerHTML = '<i class="fa fa-cloud"></i> 云同步';
+        // 先检查是否已存在按钮
+        if (document.querySelector('.cloud-sync-btn')) {
+            console.log('云同步按钮已存在，绑定事件');
+            const existingBtn = document.querySelector('.cloud-sync-btn');
             
-            // 添加点击事件
-            syncBtn.addEventListener('click', () => {
+            // 移除所有现有事件
+            const newBtn = existingBtn.cloneNode(true);
+            existingBtn.parentNode.replaceChild(newBtn, existingBtn);
+            
+            // 绑定新事件处理器
+            newBtn.onclick = (e) => {
+                e.preventDefault();
+                console.log('云同步按钮被点击');
+                
                 // 检查是否已授权
-                if (!this.dropboxClient.getAccessToken()) {
+                if (!this.dropboxClient || !this.dropboxClient.getAccessToken()) {
                     this.authorizeDropbox();
                 } else {
                     this.syncData();
                 }
-            });
-            
-            // 添加到DOM
-            dataActions.appendChild(syncBtn);
-            
-            // 简化界面 - 隐藏多余的同步按钮
-            const oldButtons = dataActions.querySelectorAll('.emergency-sync-btn, .super-sync-btn');
-            oldButtons.forEach(btn => {
-                btn.style.display = 'none';
-            });
+            };
+            return;
         }
+        
+        // 创建新按钮
+        console.log('创建新的云同步按钮');
+        const syncBtn = document.createElement('button');
+        syncBtn.className = 'cloud-sync-btn';
+        syncBtn.innerHTML = '<i class="fa fa-cloud"></i> 云同步';
+        
+        // 使用直接的onclick而不是addEventListener
+        syncBtn.onclick = (e) => {
+            e.preventDefault();
+            console.log('云同步按钮被点击');
+            
+            // 检查是否已授权
+            if (!this.dropboxClient || !this.dropboxClient.getAccessToken()) {
+                this.authorizeDropbox();
+            } else {
+                this.syncData();
+            }
+        };
+        
+        // 直接添加到DOM
+        dataActions.appendChild(syncBtn);
+        console.log('云同步按钮已添加到DOM');
     },
     
     /**
@@ -288,34 +349,116 @@ const CloudSync = {
      * 检查是否从授权重定向返回
      */
     checkAuthRedirect() {
-        const hashParams = new URLSearchParams(window.location.hash.substr(1));
-        const accessToken = hashParams.get('access_token');
+        console.log('检查授权重定向...');
+        console.log('当前URL:', window.location.href);
         
-        if (accessToken) {
-            // 保存访问令牌（同时保存到两个存储键）
-            localStorage.setItem('dropboxAccessToken', accessToken);
-            localStorage.setItem('dropbox_access_token', accessToken);
-            this.dropboxClient.setAccessToken(accessToken);
+        // 检查URL哈希（#后面的部分）
+        const hash = window.location.hash;
+        
+        if (hash && hash.includes('access_token=')) {
+            console.log('URL包含访问令牌');
             
-            // 清除URL中的访问令牌
-            window.history.replaceState(null, document.title, window.location.pathname);
+            // 从哈希中提取访问令牌
+            const hashParams = new URLSearchParams(hash.substr(1));
+            const accessToken = hashParams.get('access_token');
             
-            this.showSyncNotification('已成功连接到Dropbox', 'success');
-            this.showSyncStatus('已连接到Dropbox');
-            
-            // 授权后立即同步
-            setTimeout(() => {
-                this.syncData();
-            }, 1000);
+            if (accessToken) {
+                console.log('成功提取访问令牌，长度:', accessToken.length);
+                
+                // 保存访问令牌
+                localStorage.setItem('dropboxAccessToken', accessToken);
+                localStorage.setItem('dropbox_access_token', accessToken);
+                
+                // 根据SDK版本设置令牌
+                if (this.dropboxClient) {
+                    if (this.dropboxClient.auth) {
+                        this.dropboxClient.auth.setAccessToken(accessToken);
+                    } else {
+                        this.dropboxClient.setAccessToken(accessToken);
+                    }
+                } else {
+                    // 如果客户端未初始化，先初始化
+                    this.initDropboxClient();
+                }
+                
+                // 清除URL中的访问令牌
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                console.log('授权成功，准备同步数据');
+                this.showSyncNotification('已成功连接到Dropbox', 'success');
+                this.showSyncStatus('已连接到Dropbox');
+                
+                // 授权后立即同步
+                setTimeout(() => {
+                    this.syncData();
+                }, 1000);
+                
+                return true;
+            }
         }
+        
+        // 检查是否已授权
+        const accessToken = localStorage.getItem('dropboxAccessToken') || localStorage.getItem('dropbox_access_token');
+        if (accessToken && this.dropboxClient) {
+            console.log('本地已有访问令牌，无需重新授权');
+            return true;
+        }
+        
+        console.log('未检测到授权重定向');
+        return false;
     },
     
     /**
      * 授权Dropbox
      */
     authorizeDropbox() {
-        const authUrl = this.dropboxClient.getAuthenticationUrl(this.config.redirectUri);
-        window.location.href = authUrl;
+        console.log('开始Dropbox授权流程...');
+        
+        if (typeof Dropbox === 'undefined') {
+            console.error('Dropbox SDK未正确加载');
+            alert('无法连接到Dropbox，请确保网络连接正常');
+            return;
+        }
+        
+        try {
+            // 确保客户端已初始化
+            if (!this.dropboxClient) {
+                this.initDropboxClient();
+            }
+            
+            // 使用标准授权URL
+            const authUrl = this.dropboxClient.auth.getAuthenticationUrl(this.config.redirectUri);
+            console.log('授权URL:', authUrl);
+            
+            // 跳转到授权页面
+            window.location.href = authUrl;
+        } catch (error) {
+            console.error('获取授权URL失败:', error);
+            
+            // 尝试备用方法
+            try {
+                // 创建新的auth实例
+                const dbxAuth = new Dropbox.DropboxAuth({
+                    clientId: this.config.clientId
+                });
+                
+                const backupAuthUrl = dbxAuth.getAuthenticationUrl(
+                    this.config.redirectUri,
+                    null,
+                    'token',
+                    'code',
+                    null,
+                    null,
+                    true
+                );
+                
+                console.log('使用备用方法生成授权URL:', backupAuthUrl);
+                window.location.href = backupAuthUrl;
+            } catch (backupError) {
+                console.error('备用授权方法也失败:', backupError);
+                alert('无法连接到Dropbox，请稍后再试');
+            }
+        }
     },
     
     /**

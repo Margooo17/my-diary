@@ -540,6 +540,7 @@ const Diary = {
         this.isSaving = true;
         
         try {
+        const modal = document.querySelector('.diary-modal');
         const content = document.querySelector('.diary-content').value.trim();
         console.log('准备保存的内容:', content);
         
@@ -554,26 +555,38 @@ const Diary = {
             .map(tag => tag.textContent.trim());
             console.log('标签:', tags);
             
+        // 从模态框的dataset.diaryId获取当前正在编辑的日记ID
+        const editingDiaryId = modal.dataset.diaryId;
+        console.log('当前编辑的日记ID:', editingDiaryId);
+        
+        // 如果是编辑现有日记，获取原始日记数据
+        let originalDiary = null;
+        if (editingDiaryId) {
+            const allDiaries = Storage.getAllDiaries();
+            originalDiary = allDiaries.find(d => d.id === editingDiaryId);
+            console.log('找到原始日记:', originalDiary);
+        }
+            
         // 创建新日记对象
         const diary = {
-            id: this.currentDiaryId || Date.now().toString(),
+            id: editingDiaryId || Date.now().toString(),
             content,
-            createdAt: this.currentDiaryId ? this.currentDiaryCreatedAt : new Date().toISOString(),
+            createdAt: originalDiary ? originalDiary.createdAt : new Date().toISOString(),
             tags,
-                comments: this.currentDiaryId ? (this.currentDiaryComments || []) : [],
-                lastModified: new Date().toISOString()
+            comments: originalDiary ? (originalDiary.comments || []) : [],
+            lastModified: new Date().toISOString()
         };
         
         console.log('保存的日记:', diary);
             
         // 保存到存储
         let diaries;
-        if (this.currentDiaryId) {
-                    // 更新现有日记
+        if (editingDiaryId) {
+            // 更新现有日记
             diaries = Storage.getAllDiaries().map(d => 
-                d.id === this.currentDiaryId ? diary : d
+                d.id === editingDiaryId ? diary : d
             );
-                } else {
+        } else {
             // 添加新日记
             diaries = [diary, ...Storage.getAllDiaries()];
         }

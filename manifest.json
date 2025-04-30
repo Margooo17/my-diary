@@ -1,0 +1,17 @@
+{
+  "name": "博客式日记本",
+  "short_name": "我的日记",
+  "description": "一个简单、美观的在线日记应用，支持标签分类、搜索、数据导入导出和云同步",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4e89ae",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTIxIDVjMC0xLjEtLjktMi0yLTJoLTE0Yy0xLjEgMC0yIC45LTIgMnYxNGMwIDEuMS45IDIgMiAyaDE0YzEuMSAwIDItLjkgMi0yVjV6bS0yIDE0aC0xNFY1aDE0djE0em0tOS0xaDR2LTFoLTR2MXptMC0zaDh2LTFoLTh2MXptMC0zaDh2LTFoLTh2MXptMC0zaDh2LTFoLTh2MXptLTQgNmgydi01aC0ydjV6IiBmaWxsPSIjNGU4OWFlIi8+PC9zdmc+",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+} 

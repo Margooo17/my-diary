@@ -7,6 +7,12 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title id="page-title">博客式日记本</title>
+    <!-- PWA支持 -->
+    <meta name="theme-color" content="#4e89ae">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="我的日记">
+    <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/themes.css">
     <link rel="stylesheet" href="css/cloud-sync.css">
@@ -149,6 +155,129 @@
     <script src="js/diary.js"></script>
     <script src="js/cloud-sync.js"></script>
     <script>
+        // 注册Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(function(registration) {
+                        console.log('Service Worker 注册成功，作用域：', registration.scope);
+                    })
+                    .catch(function(error) {
+                        console.log('Service Worker 注册失败:', error);
+                    });
+            });
+        }
+        
+        // 直接检测授权重定向（立即执行）
+        (function() {
+            console.log('检查授权重定向...');
+            console.log('URL hash:', window.location.hash);
+            
+            // 检查URL中是否包含Dropbox授权回调参数
+            if (window.location.hash && window.location.hash.includes('access_token=')) {
+                try {
+                    console.log('检测到授权回调参数');
+                    // 从URL中提取令牌
+                    const hashParams = new URLSearchParams(window.location.hash.substr(1));
+                    const accessToken = hashParams.get('access_token');
+                    
+                    if (accessToken) {
+                        console.log('成功提取访问令牌，长度:', accessToken.length);
+                        
+                        // 保存到localStorage
+                        localStorage.setItem('dropboxAccessToken', accessToken);
+                        localStorage.setItem('dropbox_access_token', accessToken);
+                        
+                        // 清除URL中的令牌
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        
+                        setTimeout(function() {
+                            alert('授权成功! 令牌已保存。');
+                        }, 1000);
+                    } else {
+                        console.error('访问令牌为空');
+                    }
+                } catch (error) {
+                    console.error('处理授权回调出错:', error);
+                }
+            }
+        })();
+        
+        // 调试Dropbox SDK加载情况
+        window.addEventListener('load', function() {
+            console.log('========== Dropbox SDK 检查 ==========');
+            console.log('window.Dropbox:', window.Dropbox);
+            if (window.Dropbox) {
+                console.log('Dropbox VERSION:', window.Dropbox.VERSION);
+                console.log('Dropbox.Dropbox:', typeof window.Dropbox.Dropbox);
+                console.log('Dropbox.DropboxAuth:', typeof window.Dropbox.DropboxAuth);
+            }
+            
+            // 创建一个直接使用原生JavaScript的测试按钮
+            const testButton = document.createElement('button');
+            testButton.textContent = "测试Dropbox授权";
+            testButton.style.position = "fixed";
+            testButton.style.top = "10px";
+            testButton.style.right = "10px";
+            testButton.style.padding = "10px";
+            testButton.style.background = "red";
+            testButton.style.color = "white";
+            testButton.style.border = "none";
+            testButton.style.borderRadius = "4px";
+            testButton.style.zIndex = "9999";
+            
+            testButton.onclick = function() {
+                alert('测试按钮被点击');
+                
+                try {
+                    if (typeof Dropbox === 'undefined') {
+                        alert('Dropbox SDK未加载，正在尝试动态加载');
+                        const script = document.createElement('script');
+                        script.src = 'https://www.dropbox.com/static/api/2/dropins.js';
+                        script.id = 'dropboxjs';
+                        script.setAttribute('data-app-key', '8fldvz7s2c4lsq5');
+                        script.onload = function() {
+                            alert('Dropbox SDK加载成功，请再次点击测试按钮');
+                        };
+                        document.head.appendChild(script);
+                        return;
+                    }
+                    
+                    alert('Dropbox SDK已加载，开始授权流程');
+                    
+                    // 使用Dropbox Chooser - 无需复杂授权
+                    const options = {
+                        success: function(files) {
+                            alert("选择成功: " + files[0].link);
+                        },
+                        cancel: function() {
+                            alert("用户取消了选择");
+                        },
+                        linkType: "direct",
+                        multiselect: false,
+                        extensions: ['.json'],
+                    };
+                    
+                    if (Dropbox.choose) {
+                        Dropbox.choose(options);
+                    } else {
+                        // 备用方法 - 直接跳转到授权页面
+                        const redirectUri = window.location.origin + window.location.pathname;
+                        const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=8fldvz7s2c4lsq5&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
+                        
+                        alert('即将跳转到Dropbox授权页面');
+                        window.location.href = authUrl;
+                    }
+                } catch (error) {
+                    alert('错误: ' + error.message);
+                    console.error('测试按钮错误:', error);
+                }
+            };
+            
+            document.body.appendChild(testButton);
+            console.log('测试按钮已添加到页面');
+        });
+        
         // 确保在DOM完全加载后再初始化
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOM加载完成，开始初始化...');
@@ -255,6 +384,41 @@
             }
             
             console.log('初始化完成');
+            
+            // 直接绑定云同步按钮点击事件
+            setTimeout(function() {
+                // 为所有云同步按钮添加直接事件处理
+                var syncButtons = document.querySelectorAll('.cloud-sync-btn');
+                console.log('找到云同步按钮数量:', syncButtons.length);
+                
+                syncButtons.forEach(function(btn, index) {
+                    console.log(`处理第${index+1}个云同步按钮`);
+                    
+                    // 移除所有现有事件
+                    var newBtn = btn.cloneNode(true);
+                    if (btn.parentNode) {
+                        btn.parentNode.replaceChild(newBtn, btn);
+                    }
+                    
+                    // 添加直接事件处理
+                    newBtn.addEventListener('click', function(e) {
+                        console.log('云同步按钮被点击(直接事件)');
+                        e.preventDefault();
+                        
+                        try {
+                            // 直接使用重定向授权方式
+                            const redirectUri = window.location.origin + window.location.pathname;
+                            const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=8fldvz7s2c4lsq5&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
+                            
+                            alert('即将跳转到Dropbox授权页面');
+                            window.location.href = authUrl;
+                        } catch (err) {
+                            alert('云同步出错: ' + err.message);
+                            console.error('云同步按钮错误:', err);
+                        }
+                    });
+                });
+            }, 1000); // 延迟1秒确保DOM完全加载
         });
     </script>
     
